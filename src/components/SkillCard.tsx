@@ -9,6 +9,8 @@ interface SkillCardProps {
   icon: LucideIcon;
   examCount: number;
   onClick: () => void;
+  questionCount?: number; // ✅ thêm dòng này
+
 }
 
 const skillGradients: Record<Skill, string> = {

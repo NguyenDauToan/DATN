@@ -1,13 +1,30 @@
-import { useState, useCallback } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { useState, useCallback, ReactNode } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { testAPI } from "@/api/Api";
 
-export function GenerateExamAI({ onSuccess }: { onSuccess?: () => void }) {
+type GenerateExamAIProps = {
+  onSuccess?: () => void | Promise<void>;
+  children?: ReactNode;
+};
+
+export function GenerateExamAI({ onSuccess, children }: GenerateExamAIProps) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [questions, setQuestions] = useState<any[]>([]);
@@ -21,7 +38,6 @@ export function GenerateExamAI({ onSuccess }: { onSuccess?: () => void }) {
     numQuestions: 10,
   });
 
-  // Chỉ lấy câu hỏi AI, không tạo exam
   const handleGenerate = useCallback(async () => {
     if (!form.grade || !form.skill || !form.numQuestions || !form.duration) {
       return toast.error("Vui lòng điền đầy đủ thông tin");
@@ -29,7 +45,7 @@ export function GenerateExamAI({ onSuccess }: { onSuccess?: () => void }) {
 
     try {
       setLoading(true);
-      const res = await testAPI.createAI(form); // gọi /create
+      const res = await testAPI.createAI(form); // gọi /exam-ai/create
       if (!res.data.questions?.length) return toast.error("Không có câu hỏi phù hợp");
 
       setQuestions(res.data.questions);
@@ -50,20 +66,26 @@ export function GenerateExamAI({ onSuccess }: { onSuccess?: () => void }) {
     }
   }, [form]);
 
-  // Lưu exam thật vào DB
   const handleSave = useCallback(async () => {
     if (!createdExam || !questions.length) return toast.error("Chưa có đề thi để lưu");
 
     try {
       setLoading(true);
-      await testAPI.saveExam(createdExam); // gọi /save
+      await testAPI.saveExam(createdExam); // gọi /exams/save
       toast.success("✅ Đề thi đã lưu vào database!");
-      onSuccess?.();
+      await onSuccess?.();
 
       setOpen(false);
       setQuestions([]);
       setCreatedExam(null);
-      setForm({ title: "", grade: "", skill: "", level: "", duration: 45, numQuestions: 10 });
+      setForm({
+        title: "",
+        grade: "",
+        skill: "",
+        level: "",
+        duration: 45,
+        numQuestions: 10,
+      });
     } catch (err: any) {
       toast.error(err.response?.data?.message || "Lỗi khi lưu đề thi");
     } finally {
@@ -74,7 +96,11 @@ export function GenerateExamAI({ onSuccess }: { onSuccess?: () => void }) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button className="bg-purple-600 hover:bg-purple-700 ml-2">🤖 Tạo đề thi AI</Button>
+        {children ?? (
+          <Button className="bg-purple-600 hover:bg-purple-700 ml-2">
+            🤖 Tạo đề thi AI
+          </Button>
+        )}
       </DialogTrigger>
 
       <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
@@ -83,23 +109,29 @@ export function GenerateExamAI({ onSuccess }: { onSuccess?: () => void }) {
         </DialogHeader>
 
         <div className="space-y-4 mt-2">
-          {/* Form thông tin */}
           <div>
             <Label>Tên đề thi</Label>
             <Input
               placeholder="Nhập tên đề (có thể bỏ trống)"
               value={form.title}
-              onChange={e => setForm({ ...form, title: e.target.value })}
+              onChange={(e) => setForm({ ...form, title: e.target.value })}
             />
           </div>
 
           <div>
             <Label>Lớp</Label>
-            <Select value={form.grade} onValueChange={val => setForm({ ...form, grade: val })}>
-              <SelectTrigger><SelectValue placeholder="Chọn lớp" /></SelectTrigger>
+            <Select
+              value={form.grade}
+              onValueChange={(val) => setForm({ ...form, grade: val })}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Chọn lớp" />
+              </SelectTrigger>
               <SelectContent>
-                {Array.from({ length: 7 }, (_, i) => 6 + i).map(g => (
-                  <SelectItem key={g} value={String(g)}>Lớp {g}</SelectItem>
+                {Array.from({ length: 7 }, (_, i) => 6 + i).map((g) => (
+                  <SelectItem key={g} value={String(g)}>
+                    Lớp {g}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -107,8 +139,13 @@ export function GenerateExamAI({ onSuccess }: { onSuccess?: () => void }) {
 
           <div>
             <Label>Kỹ năng</Label>
-            <Select value={form.skill} onValueChange={val => setForm({ ...form, skill: val })}>
-              <SelectTrigger><SelectValue placeholder="Chọn kỹ năng" /></SelectTrigger>
+            <Select
+              value={form.skill}
+              onValueChange={(val) => setForm({ ...form, skill: val })}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Chọn kỹ năng" />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="reading">Reading</SelectItem>
                 <SelectItem value="listening">Listening</SelectItem>
@@ -120,8 +157,13 @@ export function GenerateExamAI({ onSuccess }: { onSuccess?: () => void }) {
 
           <div>
             <Label>Cấp độ</Label>
-            <Select value={form.level} onValueChange={val => setForm({ ...form, level: val })}>
-              <SelectTrigger><SelectValue placeholder="Chọn cấp độ" /></SelectTrigger>
+            <Select
+              value={form.level}
+              onValueChange={(val) => setForm({ ...form, level: val })}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Chọn cấp độ" />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="easy">Easy</SelectItem>
                 <SelectItem value="medium">Medium</SelectItem>
@@ -133,12 +175,24 @@ export function GenerateExamAI({ onSuccess }: { onSuccess?: () => void }) {
 
           <div>
             <Label>Thời gian (phút)</Label>
-            <Input type="number" value={form.duration} onChange={e => setForm({ ...form, duration: Number(e.target.value) })} />
+            <Input
+              type="number"
+              value={form.duration}
+              onChange={(e) =>
+                setForm({ ...form, duration: Number(e.target.value) })
+              }
+            />
           </div>
 
           <div>
             <Label>Số câu hỏi</Label>
-            <Input type="number" value={form.numQuestions} onChange={e => setForm({ ...form, numQuestions: Number(e.target.value) })} />
+            <Input
+              type="number"
+              value={form.numQuestions}
+              onChange={(e) =>
+                setForm({ ...form, numQuestions: Number(e.target.value) })
+              }
+            />
           </div>
 
           <Button onClick={handleGenerate} className="w-full" disabled={loading}>
@@ -150,11 +204,15 @@ export function GenerateExamAI({ onSuccess }: { onSuccess?: () => void }) {
               <h3 className="font-semibold text-lg">Danh sách câu hỏi:</h3>
               {questions.map((q, i) => (
                 <div key={q._id || i} className="border p-2 rounded">
-                  <p>{i + 1}. {q.content}</p>
+                  <p>
+                    {i + 1}. {q.content}
+                  </p>
                   {q.options?.length > 0 && (
                     <ul className="list-disc ml-5">
                       {q.options.map((opt: string, idx: number) => (
-                        <li key={idx}>{opt} {opt === q.answer && <b>(Đáp án đúng)</b>}</li>
+                        <li key={idx}>
+                          {opt} {opt === q.answer && <b>(Đáp án đúng)</b>}
+                        </li>
                       ))}
                     </ul>
                   )}

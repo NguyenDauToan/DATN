@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, ReactNode } from "react";
 import axios from "axios";
 import {
   Dialog,
@@ -20,7 +20,12 @@ import {
 import { toast } from "sonner";
 import { Loader2, PlusCircle } from "lucide-react";
 
-export default function AddExamModal({ onSuccess }: { onSuccess?: () => void }) {
+type AddExamModalProps = {
+  onSuccess?: () => void | Promise<void>;
+  children?: ReactNode;
+};
+
+export default function AddExamModal({ onSuccess, children }: AddExamModalProps) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [questions, setQuestions] = useState<any[]>([]);
@@ -58,6 +63,7 @@ export default function AddExamModal({ onSuccess }: { onSuccess?: () => void }) 
   useEffect(() => {
     loadQuestions(form.grade, form.level);
     setForm((prev) => ({ ...prev, selectedQuestions: [] }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.grade, form.level]);
 
   const handleSubmit = async () => {
@@ -84,7 +90,7 @@ export default function AddExamModal({ onSuccess }: { onSuccess?: () => void }) 
       toast.success("Tạo đề thi thành công 🎉");
       setOpen(false);
       setForm({ title: "", level: "", grade: "", duration: 30, selectedQuestions: [] });
-      onSuccess?.();
+      await onSuccess?.();
     } catch (err: any) {
       toast.error(err.response?.data?.message || "Lỗi khi tạo đề");
     } finally {
@@ -95,10 +101,12 @@ export default function AddExamModal({ onSuccess }: { onSuccess?: () => void }) 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button className="bg-indigo-600 hover:bg-indigo-700 flex items-center gap-2 shadow">
-          <PlusCircle size={18} />
-          Tạo đề thi
-        </Button>
+        {children ?? (
+          <Button className="bg-indigo-600 hover:bg-indigo-700 flex items-center gap-2 shadow">
+            <PlusCircle size={18} />
+            Tạo đề thi
+          </Button>
+        )}
       </DialogTrigger>
 
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto rounded-xl p-6">

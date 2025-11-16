@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="400" height="120" viewBox="0 0 400 120" xmlns="http://www.w3.org/2000/svg">
+  <!-- Gradient definition -->
+  <defs>
+    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#3B82F6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#6366F1;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded square background for icon -->
+  <rect x="0" y="0" width="100" height="100" rx="20" ry="20" fill="url(#grad1)" />
+
+  <!-- Book icon (simplified, larger) -->
+  <path d="M20 20 H80 V80 H20 Z" fill="#fff"/>
+  <line x1="50" y1="20" x2="50" y2="80" stroke="#000" stroke-width="2"/>
+
+  <!-- Main text: ENGLISH -->
+  <text x="120" y="50" font-family="Inter, sans-serif" font-size="48" fill="#111" font-weight="700">ENGLISH</text>
+
+  <!-- Subtext -->
+  <text x="120" y="90" font-family="Inter, sans-serif" font-size="24" fill="#666">Học tiếng Anh hiệu quả</text>
+</svg>

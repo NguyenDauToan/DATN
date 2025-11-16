@@ -8,7 +8,7 @@ interface LevelCardProps {
   level: LevelOrGrade;
   description: string;
   isCompleted?: boolean;
-  progress?: number;
+  progress?: number;   // 0–100, nếu không truyền thì mặc định 0
   onClick: () => void;
 }
 
@@ -37,6 +37,9 @@ export function LevelCard({
   progress = 0,
   onClick,
 }: LevelCardProps) {
+  // Đảm bảo progress nằm trong 0–100
+  const safeProgress = Math.max(0, Math.min(progress, 100));
+
   return (
     <Card
       className="cursor-pointer transition-all duration-300 hover:shadow-lg hover:-translate-y-1 group"
@@ -46,26 +49,29 @@ export function LevelCard({
       <CardContent className="p-6 space-y-4">
         <div className="flex items-start justify-between">
           <div className="space-y-1">
-            <h3 className="text-2xl font-bold text-foreground">{level === "thptqg" ? "THPTQG" : `Lớp ${level}`}</h3>
+            <h3 className="text-2xl font-bold text-foreground">
+              {level === "thptqg" ? "THPTQG" : `Lớp ${level}`}
+            </h3>
             <p className="text-sm text-muted-foreground">{description}</p>
           </div>
           {isCompleted && <CheckCircle2 className="h-6 w-6 text-success" />}
         </div>
 
-        {progress > 0 && (
-          <div className="space-y-2">
-            <div className="flex justify-between text-xs">
-              <span className="text-muted-foreground">Tiến độ</span>
-              <span className="font-medium text-foreground">{progress}%</span>
-            </div>
-            <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
-              <div
-                className={`h-full bg-gradient-to-r ${levelColors[level]} transition-all duration-500`}
-                style={{ width: `${progress}%` }}
-              />
-            </div>
+        {/* Luôn hiển thị tiến độ, kể cả 0% */}
+        <div className="space-y-2">
+          <div className="flex justify-between text-xs">
+            <span className="text-muted-foreground">Tiến độ</span>
+            <span className="font-medium text-foreground">
+              {safeProgress}%
+            </span>
           </div>
-        )}
+          <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+            <div
+              className={`h-full bg-gradient-to-r ${levelColors[level]} transition-all duration-500`}
+              style={{ width: `${safeProgress}%` }}
+            />
+          </div>
+        </div>
 
         <div className="pt-2 text-sm text-muted-foreground group-hover:text-primary transition-colors">
           Nhấn để xem bài thi →

@@ -18,7 +18,7 @@ export interface UserProfile {
   level?: string;
   school?: string;
   avatar?: string;
-  createdAt?: string;
+  createdAt?: string; 
 }
 
 export interface LoginResponse {

@@ -5,7 +5,9 @@
 /* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
 All colors MUST be HSL.
 */
-
+html {
+  overflow-y: scroll;
+}
 @layer base {
   :root {
     --background: 210 40% 98%;
@@ -69,7 +71,6 @@ All colors MUST be HSL.
     
     --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
-
   .dark {
     --background: 215 30% 8%;
     --foreground: 210 40% 98%;
@@ -128,6 +129,86 @@ All colors MUST be HSL.
     --shadow-lg: 0 8px 24px hsl(0 0% 0% / 0.5);
     --shadow-glow: 0 0 24px hsl(195 85% 50% / 0.3);
   }
+}
+body.react-remove-scroll-body {
+  padding-right: 0 !important;
+  margin-right: 0 !important;
+}
+html, body {
+  overflow-y: scroll;
+}
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.25s ease-out both;
+}
+
+@keyframes slide-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.animate-slide-in {
+  animation: slide-in 0.3s ease-out both;
+}
+
+/* Giữ không gian cố định cho scrollbar (trình duyệt mới) */
+html {
+  scrollbar-gutter: stable;
+}
+@keyframes chat-in {
+  0% {
+    opacity: 0;
+    transform: translateY(20px) scale(0.9);
+    transform-origin: bottom right;
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    transform-origin: bottom right;
+  }
+}
+
+@keyframes chat-out {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    transform-origin: bottom right;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(20px) scale(0.6);
+    transform-origin: bottom right; /* thu về góc bubble */
+  }
+}
+
+@keyframes chat-overlay-in {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+@keyframes chat-overlay-out {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.animate-chat-in {
+  animation: chat-in 0.22s ease-out forwards;
+}
+
+.animate-chat-out {
+  animation: chat-out 0.22s ease-in forwards;
+}
+
+.animate-chat-overlay-in {
+  animation: chat-overlay-in 0.18s ease-out forwards;
+}
+
+.animate-chat-overlay-out {
+  animation: chat-overlay-out 0.18s ease-in forwards;
 }
 
 @layer base {
