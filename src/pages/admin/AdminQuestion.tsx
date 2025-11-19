@@ -257,20 +257,33 @@ const AdminQuestions = () => {
 
             <div className="flex flex-wrap gap-2">
               <Select value={selectedGrade} onValueChange={setSelectedGrade}>
-                <SelectTrigger className="w-[150px] rounded-xl text-xs md:text-sm">
-                  <SelectValue placeholder="Lớp" />
+                <SelectTrigger className="w-[180px] rounded-xl text-xs md:text-sm">
+                  <SelectValue placeholder="Lớp / Kỳ thi" />
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Tất cả lớp</SelectItem>
-                  <SelectItem value="6">Lớp 6</SelectItem>
-                  <SelectItem value="7">Lớp 7</SelectItem>
-                  <SelectItem value="8">Lớp 8</SelectItem>
-                  <SelectItem value="9">Lớp 9</SelectItem>
-                  <SelectItem value="10">Lớp 10</SelectItem>
-                  <SelectItem value="11">Lớp 11</SelectItem>
-                  <SelectItem value="12">Lớp 12</SelectItem>
+
+                <SelectContent className="p-0">
+                  {/* bọc các item trong 1 div có scroll */}
+                  <div className="max-h-60 overflow-y-auto">
+                    <SelectItem value="all">Tất cả</SelectItem>
+
+                    {/* Lớp 6–12 */}
+                    <SelectItem value="6">Lớp 6</SelectItem>
+                    <SelectItem value="7">Lớp 7</SelectItem>
+                    <SelectItem value="8">Lớp 8</SelectItem>
+                    <SelectItem value="9">Lớp 9</SelectItem>
+                    <SelectItem value="10">Lớp 10</SelectItem>
+                    <SelectItem value="11">Lớp 11</SelectItem>
+                    <SelectItem value="12">Lớp 12</SelectItem>
+
+                    {/* Các kỳ thi lớn */}
+                    <SelectItem value="thptqg">Kỳ thi THPTQG</SelectItem>
+                    <SelectItem value="ielts">Kỳ thi IELTS</SelectItem>
+                    <SelectItem value="toeic">Kỳ thi TOEIC</SelectItem>
+                    <SelectItem value="vstep">Kỳ thi VSTEP</SelectItem>
+                  </div>
                 </SelectContent>
               </Select>
+
 
               <Select value={selectedLevel} onValueChange={setSelectedLevel}>
                 <SelectTrigger className="w-[150px] rounded-xl text-xs md:text-sm">

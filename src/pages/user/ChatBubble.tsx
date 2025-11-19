@@ -6,25 +6,47 @@ import { Card } from "@/components/ui/card";
 import { toast } from "sonner";
 import api from "@/api/Api";
 import { io, Socket } from "socket.io-client";
-import { MessageCircle, X } from "lucide-react";
+import { X, Bot } from "lucide-react";
+
+type AssistantMsg = {
+  id: string;
+  from: "user" | "bot";
+  text: string;
+  createdAt: string;
+};
 
 export default function ChatBubble() {
   const [open, setOpen] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
+
+  // ---- trạng thái chat với GIÁO VIÊN (feedback) ----
   const [message, setMessage] = useState("");
   const [feedbacks, setFeedbacks] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [socket, setSocket] = useState<Socket | null>(null);
   const [initialLoaded, setInitialLoaded] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [conversationEnded, setConversationEnded] = useState(false);
+  const [waitingApproval, setWaitingApproval] = useState(false);
+
+  // ---- trạng thái chat với TRỢ LÝ HỆ THỐNG ----
+  const [mode, setMode] = useState<"assistant" | "teacher">("assistant");
+  const [assistantInput, setAssistantInput] = useState("");
+  const [assistantMsgs, setAssistantMsgs] = useState<AssistantMsg[]>([]);
+  const [assistantLoading, setAssistantLoading] = useState(false);
 
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const openRef = useRef(false);
 
+  // 👇 LẤY userId TỪ localStorage (không cần useAuth)
+  const [userId] = useState<string>(() => {
+    return localStorage.getItem("userId") || "";
+  });
+
   const scrollToBottom = () => {
     setTimeout(() => {
       chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, 50);
+    }, 60);
   };
 
   const getLastSeen = () => {
@@ -78,7 +100,17 @@ export default function ChatBubble() {
       );
       setFeedbacks(list);
 
-      // tính lại unread từ localStorage
+      // Trạng thái hội thoại hiện tại = trạng thái của tin cuối
+      const lastItem = list[list.length - 1];
+      const lastEnded = !!lastItem?.ended;
+      const hasReply = list.some((fb) => fb.reply);
+
+      setConversationEnded(lastEnded);
+      // Chờ GV chấp nhận khi: có feedback, chưa có reply nào, và tin cuối chưa ended
+      setWaitingApproval(list.length > 0 && !hasReply && !lastEnded);
+
+
+
       recomputeUnread(list);
 
       setTimeout(() => {
@@ -90,8 +122,18 @@ export default function ChatBubble() {
     }
   };
 
-  const handleSend = async () => {
+  // ----- gửi tin nhắn cho GIÁO VIÊN -----
+  const handleSendTeacher = async () => {
+    if (conversationEnded) {
+      toast.info(
+        "Giáo viên đã kết thúc cuộc trò chuyện. Hãy dùng Trợ lý hệ thống để tiếp tục được hỗ trợ."
+      );
+      setMode("assistant");
+      return;
+    }
+
     if (!message.trim()) return toast.error("Vui lòng nhập nội dung!");
+
     try {
       setLoading(true);
       const res = await api.post("/feedback", { message });
@@ -101,9 +143,7 @@ export default function ChatBubble() {
       setFeedbacks((prev) => {
         const exists = prev.some((x) => x._id === fb._id);
         if (exists) return prev;
-        const next = [...prev, fb];
-        // gửi từ HS không làm tăng unread
-        return next;
+        return [...prev, fb];
       });
 
       socket?.emit("send_message", fb);
@@ -117,28 +157,153 @@ export default function ChatBubble() {
     }
   };
 
+  // ----- khi bấm "Liên hệ giáo viên" từ Bot -----
+  const handleContactTeacher = async () => {
+    try {
+      // ĐÃ có lịch sử và cuộc hiện tại CHƯA kết thúc => chỉ mở tab giáo viên
+      if (feedbacks.length > 0 && !conversationEnded) {
+        setMode("teacher");
+        setWaitingApproval(false);
+        return;
+      }
+
+      // Cuộc cũ đã kết thúc HOẶC chưa có gì => tạo yêu cầu mới
+      setMode("teacher");
+      setConversationEnded(false); // mở hội thoại mới
+      setWaitingApproval(true);    // đang gửi yêu cầu tới GV
+
+      const autoText =
+        "Em cần giáo viên hỗ trợ thêm về hệ thống/bài học. Thầy/cô có thể phản hồi giúp em khi rảnh ạ.";
+
+      const res = await api.post("/feedback", { message: autoText });
+      const fb = res.data?.feedback ?? res.data;
+      if (!fb || !fb._id) {
+        toast.error("Không gửi được yêu cầu tới giáo viên.");
+        setWaitingApproval(false);
+        setMode("assistant"); // nếu lỗi thì quay lại bot
+        return;
+      }
+
+      setFeedbacks((prev) => [...prev, fb]);
+      socket?.emit("send_message", fb);
+
+      scrollToBottom();
+      toast.success("Đã gửi yêu cầu tới giáo viên. Vui lòng chờ chấp nhận.");
+    } catch (e) {
+      console.error(e);
+      toast.error("Không gửi được yêu cầu tới giáo viên, hãy thử lại sau.");
+      setWaitingApproval(false);
+      setMode("assistant");
+    }
+  };
+
+
+  // ----- gửi tin nhắn cho TRỢ LÝ HỆ THỐNG -----
+  const handleSendAssistant = async () => {
+    const text = assistantInput.trim();
+    if (!text) {
+      toast.error("Vui lòng nhập nội dung.");
+      return;
+    }
+
+    const lower = text.toLowerCase();
+    if (
+      lower.includes("đáp án") ||
+      lower.includes("chọn đáp án") ||
+      /câu\s*\d+\s*(là gì|đáp án|chọn)/i.test(lower)
+    ) {
+      toast.info(
+        "Trợ lý hệ thống không cung cấp đáp án trực tiếp cho câu hỏi trong đề thi."
+      );
+      return;
+    }
+
+    try {
+      setAssistantLoading(true);
+
+      const userMsg: AssistantMsg = {
+        id: Date.now().toString(),
+        from: "user",
+        text,
+        createdAt: new Date().toISOString(),
+      };
+      setAssistantMsgs((prev) => [...prev, userMsg]);
+      setAssistantInput("");
+      scrollToBottom();
+
+      const res = await api.post("/chat/support", { message: text });
+      const replyText: string =
+        res.data?.reply ||
+        "Hiện tại mình chưa thể trả lời câu hỏi này. Bạn có thể hỏi lại theo cách khác nhé.";
+
+      const botMsg: AssistantMsg = {
+        id: Date.now().toString() + "_bot",
+        from: "bot",
+        text: replyText,
+        createdAt: new Date().toISOString(),
+      };
+      setAssistantMsgs((prev) => [...prev, botMsg]);
+      scrollToBottom();
+    } catch (err) {
+      console.error(err);
+      toast.error("Đã xảy ra lỗi khi gửi tin nhắn, thử lại sau.");
+    } finally {
+      setAssistantLoading(false);
+    }
+  };
+
+  // greeting ban đầu
+  useEffect(() => {
+    setAssistantMsgs([
+      {
+        id: "welcome",
+        from: "bot",
+        text:
+          "Xin chào 👋 Mình là Trợ lý hệ thống luyện thi. Bạn có thể hỏi về cách dùng hệ thống, lỗi, chọn đề… Nếu cần gặp giáo viên, hãy bấm nút 'Liên hệ giáo viên' bên dưới.",
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+  }, []);
+
   useEffect(() => {
     openRef.current = open;
     if (open) {
-      // mở popup: đánh dấu đã đọc tất cả reply hiện có
       updateLastSeenFromList(feedbacks);
       setUnreadCount(0);
     }
   }, [open, feedbacks]);
 
+  // 👇 KẾT NỐI SOCKET + JOIN ROOM THEO userId
   useEffect(() => {
-    const s = io("http://localhost:5000");
+    const s = io("http://localhost:5000", {
+      // nếu bạn muốn kèm token cho onlineUsers:
+      query: {
+        token: localStorage.getItem("token") || "",
+      },
+    });
     setSocket(s);
+
+    if (userId) {
+      s.emit("join_user", userId); // join room để nhận event riêng
+    }
 
     s.on("receive_message", (data: any) => {
       if (!data || !data._id) return;
 
       setFeedbacks((prev) => {
-        const exists = prev.some((x) => x._id === data._id);
-        if (exists) return prev;
-        const next = [...prev, data];
+        const idx = prev.findIndex((x) => x._id === data._id);
+        let next: any[];
 
-        // nếu popup đang đóng và đây là reply của GV → tăng unread
+        if (idx !== -1) {
+          // cập nhật feedback cũ
+          next = [...prev];
+          next[idx] = { ...next[idx], ...data };
+        } else {
+          // thêm feedback mới
+          next = [...prev, data];
+        }
+
+        // nếu đang đóng popup và đây là phản hồi của GV => tăng badge
         if (!openRef.current && data.reply) {
           setUnreadCount((c) => (c >= 99 ? 99 : c + 1));
           toast.info("Bạn có phản hồi mới từ giáo viên 💬");
@@ -147,16 +312,36 @@ export default function ChatBubble() {
         return next;
       });
 
+      if (data.reply) {
+        setWaitingApproval(false);
+        // 👇 luôn chuyển sang tab GIÁO VIÊN khi có reply
+        setMode("teacher");
+      }
+      if (data.ended) {
+        setConversationEnded(true);
+      }
       if (initialLoaded) scrollToBottom();
+    });
+
+
+    // 👇 GIÁO VIÊN KẾT THÚC HỘI THOẠI -> RECEIVE EVENT
+    s.on("conversation_ended", (payload: any) => {
+      if (!payload?.userId) return;
+      // chỉ xử lý nếu là cuộc hội thoại của chính user hiện tại
+      if (userId && String(payload.userId) !== String(userId)) return;
+
+      setConversationEnded(true);
+      toast.info("Giáo viên đã kết thúc cuộc trò chuyện. Bạn sẽ được chuyển về Bot trợ lý.");
     });
 
     fetchFeedbacks();
 
     return () => {
       s.off("receive_message");
+      s.off("conversation_ended");
       s.disconnect();
     };
-  }, []);
+  }, [userId]);
 
   useEffect(() => {
     if (feedbacks.length > 0) {
@@ -164,6 +349,28 @@ export default function ChatBubble() {
       return () => clearTimeout(timeout);
     }
   }, [feedbacks]);
+
+  useEffect(() => {
+    const hasReply = feedbacks.some((fb) => fb.reply);
+    if (hasReply) setWaitingApproval(false);
+  }, [feedbacks]);
+
+  // Khi giáo viên kết thúc hội thoại -> tự chuyển sang bot + chèn thông báo
+  useEffect(() => {
+    if (conversationEnded) {
+      setMode("assistant");
+      setAssistantMsgs((prev) => [
+        ...prev,
+        {
+          id: `ended-${Date.now()}`,
+          from: "bot",
+          text:
+            "Giáo viên đã kết thúc cuộc trò chuyện hiện tại. Mình – Bot trợ lý – sẽ tiếp tục hỗ trợ bạn ở đây.",
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+    }
+  }, [conversationEnded]);
 
   const formatTime = (iso?: string) => {
     if (!iso) return "";
@@ -175,6 +382,7 @@ export default function ChatBubble() {
   const handleOpen = () => {
     setIsClosing(false);
     setOpen(true);
+    if (conversationEnded) setMode("assistant");
   };
 
   const handleCloseClick = () => {
@@ -188,16 +396,23 @@ export default function ChatBubble() {
     }
   };
 
+  const handleOverlayClick = (
+    e: React.MouseEvent<HTMLDivElement, MouseEvent>
+  ) => {
+    if (e.target === e.currentTarget) {
+      handleCloseClick();
+    }
+  };
   return (
     <>
-      {/* Bubble – chỉ hiện khi đóng */}
+      {/* Nút nổi – chỉ hiện khi popup đóng */}
       {!open && (
         <button
           onClick={handleOpen}
           className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-full bg-gradient-to-r from-indigo-500 to-blue-500 px-5 py-3 text-sm font-medium text-white shadow-lg shadow-indigo-500/30 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-2xl active:scale-95"
         >
           <div className="relative">
-            <MessageCircle className="h-5 w-5" />
+            <Bot className="h-5 w-5" />
             {unreadCount > 0 && (
               <>
                 <span className="absolute -top-2 -right-2 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-rose-500 text-[10px] font-semibold leading-none text-white ring-2 ring-white">
@@ -207,24 +422,24 @@ export default function ChatBubble() {
               </>
             )}
           </div>
-          <span>Hỏi giáo viên</span>
+          <span>Bot trợ lý</span>
         </button>
       )}
 
-      {/* Popup chat */}
+      {/* Popup */}
       {open && (
         <div
-          className={`fixed inset-0 z-40 flex items-end justify-end bg-black/20 backdrop-blur-sm p-4 ${
-            isClosing ? "animate-chat-overlay-out" : "animate-chat-overlay-in"
-          }`}
+          className={`fixed inset-0 z-40 flex items-end justify-end bg-black/20 backdrop-blur-sm p-4 ${isClosing ? "animate-chat-overlay-out" : "animate-chat-overlay-in"
+            }`}
+          onMouseDown={handleOverlayClick}
         >
           <Card
-            className={`relative flex h-[520px] w-full max-w-sm flex-col overflow-hidden rounded-3xl border border-border/70 bg-gradient-to-b from-white to-slate-50 shadow-2xl ${
-              isClosing ? "animate-chat-out" : "animate-chat-in"
-            }`}
+            className={`relative flex h-[520px] w-full max-w-sm flex-col overflow-hidden rounded-3xl border border-border/70 bg-gradient-to-b from-white to-slate-50 shadow-2xl ${isClosing ? "animate-chat-out" : "animate-chat-in"
+              }`}
             onAnimationEnd={handleCardAnimationEnd}
+            onMouseDown={(e) => e.stopPropagation()}
           >
-            {/* Close button */}
+            {/* Close */}
             <button
               onClick={handleCloseClick}
               className="absolute right-3 top-3 rounded-full bg-white/70 p-1 text-gray-500 shadow-sm transition-colors hover:bg-gray-100 hover:text-gray-800"
@@ -232,80 +447,194 @@ export default function ChatBubble() {
               <X className="h-4 w-4" />
             </button>
 
-            {/* Header */}
-            <div className="flex items-center gap-3 border-b border-border/60 bg-gradient-to-r from-indigo-500/90 to-sky-500/90 px-4 py-3 text-white">
-              <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-white/15 shadow-sm">
-                <MessageCircle className="h-5 w-5" />
+            {/* Header Bot trợ lý */}
+            <div className="flex items-center gap-3 border-b border-border/60 bg-gradient-to-r from-indigo-500/95 to-sky-500/95 px-4 py-3 text-white">
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white/20 shadow-sm">
+                <Bot className="h-5 w-5" />
               </div>
               <div>
-                <h3 className="text-sm font-semibold">Phản hồi với giáo viên</h3>
+                <h3 className="text-sm font-semibold">Bot trợ lý</h3>
                 <p className="text-[11px] text-indigo-100/90">
-                  Gửi câu hỏi hoặc góp ý. Giáo viên sẽ trả lời tại đây.
+                  Sẵn sàng hỗ trợ bạn về hệ thống luyện thi. Nếu cần, bạn có
+                  thể liên hệ trực tiếp giáo viên.
                 </p>
               </div>
             </div>
 
-            {/* Chat area */}
+            {/* Vùng chat */}
             <div className="flex-1 space-y-4 overflow-y-auto bg-slate-50/80 px-3 py-4">
-              {feedbacks.length === 0 && (
-                <p className="mt-20 text-center text-sm text-gray-500">
-                  💬 Chưa có cuộc trò chuyện nào. Hãy gửi tin nhắn đầu tiên!
-                </p>
-              )}
-
-              {feedbacks.map((fb) => (
-                <div key={fb._id} className="space-y-2 animate-slide-in">
-                  {/* Học sinh */}
-                  <div className="flex justify-end">
-                    <div className="max-w-[75%] rounded-3xl rounded-tr-none bg-indigo-500/90 px-3.5 py-2.5 text-sm text-white shadow-md">
-                      <p>{fb.message}</p>
-                      <p className="mt-1 text-right text-[11px] text-indigo-100/80">
-                        {formatTime(fb.createdAt)}
-                      </p>
+              {mode === "assistant" ? (
+                assistantMsgs.length === 0 ? (
+                  <p className="mt-20 text-center text-sm text-gray-500">
+                    💬 Hãy đặt câu hỏi về hệ thống luyện thi tiếng Anh THPT.
+                  </p>
+                ) : (
+                  assistantMsgs.map((m) => (
+                    <div key={m.id} className="space-y-2 animate-slide-in">
+                      {m.from === "user" && (
+                        <div className="flex justify-end">
+                          <div className="max-w-[75%] rounded-3xl rounded-tr-none bg-sky-600 px-3.5 py-2.5 text-sm text-white shadow-md">
+                            <p>{m.text}</p>
+                            <p className="mt-1 text-right text-[11px] text-sky-100/80">
+                              {formatTime(m.createdAt)}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                      {m.from === "bot" && (
+                        <div className="flex justify-start">
+                          <div className="max-w-[75%] rounded-3xl rounded-tl-none bg-white px-3.5 py-2.5 text-sm text-slate-900 shadow-md ring-1 ring-slate-200">
+                            <p>{m.text}</p>
+                            <p className="mt-1 text-right text-[11px] text-slate-400">
+                              Bot trợ lý • {formatTime(m.createdAt)}
+                            </p>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  </div>
-
-                  {/* Giáo viên */}
-                  {fb.reply && (
-                    <div className="flex justify-start">
-                      <div className="max-w-[75%] rounded-3xl rounded-tl-none bg-white px-3.5 py-2.5 text-sm text-slate-900 shadow-md ring-1 ring-slate-200">
-                        <p>{fb.reply}</p>
-                        <p className="mt-1 text-right text-[11px] text-slate-400">
-                          GV • {formatTime(fb.updatedAt ?? fb.repliedAt)}
+                  ))
+                )
+              ) : feedbacks.length === 0 ? (
+                <p className="mt-20 text-center text-sm text-gray-500">
+                  💬 Bạn đang liên hệ giáo viên. Hãy gửi tin nhắn đầu tiên.
+                </p>
+              ) : (
+                feedbacks.map((fb) => (
+                  <div key={fb._id} className="space-y-2 animate-slide-in">
+                    {/* Học sinh */}
+                    <div className="flex justify-end">
+                      <div className="max-w-[75%] rounded-3xl rounded-tr-none bg-indigo-500/90 px-3.5 py-2.5 text-sm text-white shadow-md">
+                        <p>{fb.message}</p>
+                        <p className="mt-1 text-right text-[11px] text-indigo-100/80">
+                          {formatTime(fb.createdAt)}
                         </p>
                       </div>
                     </div>
-                  )}
-                </div>
-              ))}
+                    {/* Giáo viên */}
+                    {fb.reply && (
+                      <div className="flex justify-start">
+                        <div className="max-w-[75%] rounded-3xl rounded-tl-none bg-white px-3.5 py-2.5 text-sm text-slate-900 shadow-md ring-1 ring-slate-200">
+                          <p>{fb.reply}</p>
+                          <p className="mt-1 text-right text-[11px] text-slate-400">
+                            GV • {formatTime(fb.updatedAt ?? fb.repliedAt)}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
 
               <div ref={chatEndRef} />
             </div>
 
-            {/* Input */}
-            <div className="border-t border-border/60 bg-white/95 px-3 py-3">
-              <div className="flex items-end gap-2">
-                <Textarea
-                  placeholder="Nhập tin nhắn..."
-                  rows={2}
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  className="flex-1 resize-none rounded-2xl border-border/60 bg-slate-50/80 text-sm shadow-sm focus-visible:ring-2 focus-visible:ring-indigo-400"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSend();
-                    }
-                  }}
-                />
-                <Button
-                  onClick={handleSend}
-                  disabled={loading}
-                  className="mb-[2px] rounded-2xl bg-indigo-600 px-4 text-sm font-medium shadow-md transition-all hover:bg-indigo-700 hover:shadow-lg active:scale-95"
-                >
-                  {loading ? "Đang gửi..." : "Gửi"}
-                </Button>
-              </div>
+            {/* Footer */}
+            <div className="border-t border-border/60 bg-white/95 px-3 py-3 space-y-2">
+              {mode === "assistant" ? (
+                <>
+                  {/* Nút liên hệ giáo viên */}
+                  <div className="rounded-2xl border border-amber-100 bg-amber-50/70 px-3 py-2 text-[11px] text-amber-900 shadow-sm">
+                    <Button
+                      className="w-full rounded-2xl bg-amber-500 text-white text-sm font-semibold shadow-md hover:bg-amber-600"
+                      onClick={handleContactTeacher}
+                    >
+                      Liên hệ giáo viên
+                    </Button>
+                  </div>
+
+                  {/* Input chat bot */}
+                  <div className="flex items-end gap-2">
+                    <Textarea
+                      placeholder="Nhập câu hỏi về hệ thống luyện thi..."
+                      rows={2}
+                      value={assistantInput}
+                      onChange={(e) => setAssistantInput(e.target.value)}
+                      className="flex-1 resize-none rounded-2xl border-border/60 bg-slate-50/80 text-sm shadow-sm focus-visible:ring-2 focus-visible:ring-sky-400"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          if (!assistantLoading) handleSendAssistant();
+                        }
+                      }}
+                    />
+                    <Button
+                      onClick={handleSendAssistant}
+                      disabled={assistantLoading}
+                      className="mb-[2px] rounded-2xl bg-sky-600 px-4 text-sm font-medium shadow-md transition-all hover:bg-sky-700 hover:shadow-lg active:scale-95 disabled:opacity-60"
+                    >
+                      {assistantLoading ? "Đang gửi..." : "Gửi"}
+                    </Button>
+                  </div>
+                </>
+              ) : conversationEnded ? (
+                // Giáo viên đã kết thúc
+                <div className="space-y-3 text-xs text-slate-600">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+                    <p className="font-medium mb-1">
+                      Giáo viên đã kết thúc cuộc trò chuyện.
+                    </p>
+                    <p>• Bạn vẫn có thể tiếp tục hỏi Bot trợ lý.</p>
+                    <p>• Hoặc quay lại liên hệ giáo viên khi cần thiết.</p>
+                  </div>
+                  <Button
+                    className="w-full rounded-2xl bg-sky-600 text-white text-sm font-semibold shadow-md hover:bg-sky-700"
+                    onClick={() => setMode("assistant")}
+                  >
+                    Chat với Bot trợ lý
+                  </Button>
+                </div>
+              ) : waitingApproval ? (
+                // Đang chờ GV chấp nhận
+                <div className="space-y-3 text-xs text-slate-600">
+                  <div className="rounded-2xl border border-amber-100 bg-amber-50 px-3 py-2">
+                    <p className="font-medium mb-1">
+                      Đang gửi yêu cầu tới giáo viên...
+                    </p>
+                    <p>• Yêu cầu của bạn đã được chuyển tới giáo viên.</p>
+                    <p>• Khi giáo viên chấp nhận, bạn sẽ nhận được phản hồi tại đây.</p>
+                  </div>
+                </div>
+              ) : (
+                // Input chat với giáo viên
+                // Input chat với giáo viên + nút thoát
+                <div className="space-y-2">
+                  <div className="flex items-end gap-2">
+                    <Textarea
+                      placeholder="Nhập tin nhắn cho giáo viên..."
+                      rows={2}
+                      value={message}
+                      onChange={(e) => setMessage(e.target.value)}
+                      className="flex-1 resize-none rounded-2xl border-border/60 bg-slate-50/80 text-sm shadow-sm focus-visible:ring-2 focus-visible:ring-indigo-400"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          if (!loading) handleSendTeacher();
+                        }
+                      }}
+                    />
+                    <Button
+                      onClick={handleSendTeacher}
+                      disabled={loading}
+                      className="mb-[2px] rounded-2xl bg-indigo-600 px-4 text-sm font-medium shadow-md transition-all hover:bg-indigo-700 hover:shadow-lg active:scale-95"
+                    >
+                      {loading ? "Đang gửi..." : "Gửi"}
+                    </Button>
+                  </div>
+
+                  {/* nút thoát đoạn chat giáo viên */}
+                  <div className="flex justify-end">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="rounded-full text-[11px] px-3 py-1"
+                      onClick={() => setMode("assistant")}
+                    >
+                      Thoát chat giáo viên, quay về Bot trợ lý
+                    </Button>
+                  </div>
+                </div>
+
+              )}
             </div>
           </Card>
         </div>

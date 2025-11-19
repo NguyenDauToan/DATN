@@ -1,0 +1,24 @@
+/* Thanh scroll mảnh, mờ */
+.soft-scrollbar {
+    scrollbar-width: thin; /* Firefox */
+    scrollbar-color: rgba(148, 163, 184, 0.4) transparent;
+  }
+  
+  .soft-scrollbar::-webkit-scrollbar {
+    width: 6px;
+  }
+  
+  .soft-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  .soft-scrollbar::-webkit-scrollbar-thumb {
+    background-color: rgba(148, 163, 184, 0.4); /* slate-400 ~ mờ */
+    border-radius: 999px;
+  }
+  
+  /* Khi hover vùng scroll, làm đậm hơn chút */
+  .soft-scrollbar:hover::-webkit-scrollbar-thumb {
+    background-color: rgba(148, 163, 184, 0.7);
+  }
+  

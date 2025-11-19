@@ -28,6 +28,9 @@ import Leaderboard from "@/pages/user/Leaderboard.tsx";
 import ChatBubble from "@/pages/user/ChatBubble";
 import Header from "@/components/Header"; // dùng Header bạn đã tạo
 import ExamReviewPage from "./pages/ExamPageReview.tsx";
+import MockExams from "./pages/user/Examtest.tsx";
+import AdminMockExams from "./pages/admin/AdminMockExams.tsx";
+import SystemAssistantChat from "./pages/user/SystemAssistantChat.tsx";
 const queryClient = new QueryClient();
 
 // ============================
@@ -56,6 +59,9 @@ const AppLayout = () => {
           <Route path="/adaptive" element={<AdaptiveLearning />} />
           <Route path="/leaderboard" element={<Leaderboard />} />
           <Route path="/exams/:id/review" element={<ExamReviewPage />} />
+          <Route path="/mock-exams" element={<MockExams />} />
+          <Route path="/mock-exams/:id" element={<ExamPage isMock />} />
+
           {/* Admin routes */}
           <Route
             path="/admin"
@@ -71,6 +77,8 @@ const AppLayout = () => {
             <Route path="questions" element={<AdminQuestions />} />
             <Route path="tests" element={<AdminTests />} />
             <Route path="feedback" element={<AdminFeedback />} />
+            <Route path="AdminMocdata" element={<AdminMockExams />} />
+
           </Route>
 
           <Route path="*" element={<NotFound />} />

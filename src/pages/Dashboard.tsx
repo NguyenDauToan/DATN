@@ -2,9 +2,14 @@ import { useNavigate } from "react-router-dom";
 import { useEffect, useState, useCallback } from "react";
 import { StatCard } from "@/components/StatCard";
 import { RecentActivityCard } from "@/components/RecentActivityCard";
-import { UpcomingExamCard } from "@/components/UpcomingExamCard";
+import { InProgressExamCard } from "@/components/InProgressExamCard.tsx";
 import { SkillCard } from "@/components/SkillCard";
-import { skillsAPI, dashboardAPI, authAPI } from "@/api/Api";
+import {
+  skillsAPI,
+  dashboardAPI,
+  authAPI,
+  examProgressAPI,
+} from "@/api/Api";
 import {
   BookOpen,
   Target,
@@ -22,13 +27,6 @@ import type {
   RecentActivity,
   UpcomingExam,
 } from "@/api/Api";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
 import { Skill } from "@/types/exam";
 
 const skillIcons: Record<string, any> = {
@@ -49,6 +47,7 @@ const Dashboard = () => {
   const [activities, setActivities] = useState<RecentActivity[]>([]);
   const [upcoming, setUpcoming] = useState<UpcomingExam[]>([]);
   const [blocked, setBlocked] = useState(false);
+  const [inProgressExams, setInProgressExams] = useState<any[]>([]);
 
   const explainAxiosError = (err: any) => {
     const status = err?.response?.status;
@@ -83,14 +82,16 @@ const Dashboard = () => {
     setLoading(true);
     setError(null);
     setDebug(null);
-
-    const [skillsRes, dashRes] = await Promise.allSettled([
+  
+    const [skillsRes, dashRes, progressRes] = await Promise.allSettled([
       skillsAPI.getAll(),
       dashboardAPI.me(),
+      examProgressAPI.me(),          // 👈 gọi thêm
     ]);
-
+  
     const debugInfo: any = {};
-
+  
+    // ---- skills ----
     if (skillsRes.status === "fulfilled") {
       const list = skillsRes.value.data?.skills ?? [];
       setSkills(list);
@@ -100,7 +101,8 @@ const Dashboard = () => {
       debugInfo.skills = { ok: false, ...info };
       setError(`Lỗi tải kỹ năng (${info.status ?? "?"}): ${info.msg}`);
     }
-
+  
+    // ---- dashboard (quick + recent + upcoming) ----
     if (dashRes.status === "fulfilled") {
       const data = (dashRes.value.data ?? {}) as DashboardMe;
       setQuick(data.quickStats ?? null);
@@ -116,47 +118,30 @@ const Dashboard = () => {
           : `Lỗi thống kê (${info.status ?? "?"}): ${info.msg}`
       );
     }
-
+  
+    // ---- exam progress ----
+    if (progressRes.status === "fulfilled") {
+      const list = progressRes.value.data ?? [];
+      setInProgressExams(list);      // 👈 đổ vào state
+      debugInfo.progress = { ok: true, count: list.length };
+    } else {
+      const info = explainAxiosError(progressRes.reason);
+      debugInfo.progress = { ok: false, ...info };
+    }
+  
     setDebug(debugInfo);
     setLoading(false);
   }, []);
-
+  
   useEffect(() => {
     fetchAll();
   }, [fetchAll]);
 
-  const handleLogout = async () => {
-    try {
-      await authAPI.logout();
-    } catch (e) {
-      console.error("Logout error:", e);
-    } finally {
-      navigate("/", { replace: true });
-    }
-  };
 
   return (
     <div className="min-h-screen bg-gradient-subtle">
       <div className="max-w-6xl mx-auto px-4 md:px-6 lg:px-8 py-6 md:py-8 space-y-8 animate-fade-in">
         {/* Dialog tài khoản bị khóa */}
-        <Dialog open={blocked} onOpenChange={() => {}}>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle className="text-red-600">
-                Tài khoản đã bị khóa
-              </DialogTitle>
-              <DialogDescription className="pt-2">
-                Tài khoản của bạn đã bị khóa. Vui lòng liên hệ quản trị viên để
-                được hỗ trợ.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="flex justify-end mt-4">
-              <Button variant="destructive" onClick={handleLogout}>
-                Đăng xuất
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
 
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
@@ -310,8 +295,7 @@ const Dashboard = () => {
                     title={skill.displayName || skill.name}
                     description={
                       skill.description ||
-                      `Câu hỏi: ${skill.questionCount || 0} • Đề: ${
-                        skill.examCount || 0
+                      `Câu hỏi: ${skill.questionCount || 0} • Đề: ${skill.examCount || 0
                       }`
                     }
                     icon={skillIcons[skill.name] || BookOpen}
@@ -329,7 +313,13 @@ const Dashboard = () => {
         {/* Activity + Upcoming */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="animate-slide-in" style={{ animationDelay: "60ms" }}>
-            <UpcomingExamCard exams={upcoming} loading={loading} />
+          <InProgressExamCard
+              exams={inProgressExams}   
+              loading={loading}
+              onContinue={(examId, isMock) =>
+                navigate(isMock ? `/mock-exams/${examId}` : `/exams/${examId}`)
+              }
+            />
           </div>
           <div className="animate-slide-in" style={{ animationDelay: "120ms" }}>
             <RecentActivityCard activities={activities} loading={loading} />
@@ -341,4 +331,3 @@ const Dashboard = () => {
 };
 
 export default Dashboard;
-  

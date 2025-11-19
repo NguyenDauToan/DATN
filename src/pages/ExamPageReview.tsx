@@ -1,20 +1,26 @@
 // src/pages/ExamReviewPage.tsx
 import { useLocation, useNavigate } from "react-router-dom";
 import { useState } from "react";
-import axios from "axios"; // nếu không dùng có thể xoá
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { CheckCircle2, XCircle, ArrowLeft, ArrowRight } from "lucide-react";
 
-type QuestionType = "multiple_choice" | "true_false" | "fill_blank";
+type QuestionType = "multiple_choice" | "true_false" | "fill_blank" | "reading_cloze";
+
+interface SubQuestion {
+  label?: string;
+  options: string[];
+  correctIndex: number;
+}
 
 interface Question {
   _id: string;
   content: string;
   type: QuestionType;
   options?: string[];
-  answer: string;
+  answer: string; // với reading_cloze có thể là "" (không dùng)
+  subQuestions?: SubQuestion[];
 }
 
 interface ExamData {
@@ -26,8 +32,9 @@ interface ExamData {
 
 interface ReviewLocationState {
   exam: ExamData;
-  answers: (string | null)[];
-  score: number;
+  // với reading_cloze: answers[i] là string[] (mảng đáp án của từng blank)
+  answers: (string | string[] | null)[];
+  score: number;     // số câu đúng (hoặc bạn có thể truyền correctCount)
   timeUsed: number;
 }
 
@@ -37,32 +44,56 @@ const ExamReviewPage = () => {
   const state = location.state as ReviewLocationState | null;
 
   if (!state) {
-    // Không có dữ liệu (F5, vào thẳng URL) thì quay về danh sách
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="text-center space-y-3">
           <p className="text-slate-700 text-sm">
             Không tìm thấy dữ liệu bài thi để xem lại.
           </p>
-          <Button onClick={() => navigate("/exams")}>Quay về danh sách bài thi</Button>
+          <Button onClick={() => navigate("/exams")}>
+            Quay về danh sách bài thi
+          </Button>
         </div>
       </div>
     );
   }
 
   const { exam, answers, score, timeUsed } = state;
-
   const [currentIndex, setCurrentIndex] = useState(0);
 
   const question = exam.questions[currentIndex];
   const totalQuestions = exam.questions.length;
   const progress = ((currentIndex + 1) / totalQuestions) * 100;
 
-  const rawUserAnswer = answers[currentIndex];
-  const userAnswerNorm = rawUserAnswer?.trim().toLowerCase() || "";
-  const correctAnswerNorm = String(question.answer).trim().toLowerCase();
-  const isAnswered = !!userAnswerNorm;
-  const isCorrect = isAnswered && userAnswerNorm === correctAnswerNorm;
+  // ==== TÍNH ĐÚNG/SAI CHO CÂU HIỆN TẠI (KỂ CẢ reading_cloze) ====
+  let rawUserAnswer: string | null = null;
+  let userAnswerNorm = "";
+  let correctAnswerNorm = "";
+  let isAnswered = false;
+  let isCorrect = false;
+
+  if (question.type === "reading_cloze" && question.subQuestions?.length) {
+    const subAns = Array.isArray(answers[currentIndex])
+      ? (answers[currentIndex] as string[])
+      : [];
+
+    isAnswered = subAns.some((a) => a && a.trim() !== "");
+
+    isCorrect =
+      isAnswered &&
+      question.subQuestions.every((sub, i) => {
+        const user = (subAns[i] || "").trim().toLowerCase();
+        const correct =
+          (sub.options?.[sub.correctIndex] || "").trim().toLowerCase();
+        return user === correct;
+      });
+  } else {
+    rawUserAnswer = (answers[currentIndex] as string | null) ?? null;
+    userAnswerNorm = rawUserAnswer?.trim().toLowerCase() || "";
+    correctAnswerNorm = String(question.answer).trim().toLowerCase();
+    isAnswered = !!userAnswerNorm;
+    isCorrect = isAnswered && userAnswerNorm === correctAnswerNorm;
+  }
 
   const percentage = (score / totalQuestions) * 100;
   const usedMinutes = Math.floor(timeUsed / 60);
@@ -106,7 +137,7 @@ const ExamReviewPage = () => {
 
         {/* HAI CỘT: ĐỀ THI + ĐIỀU HƯỚNG */}
         <div className="flex flex-col lg:flex-row gap-6">
-          {/* CỘT TRÁI: NỘI DUNG XEM LẠI */}
+          {/* CỘT TRÁI */}
           <div className="flex-1 space-y-6">
             {/* Header bài thi */}
             <Card className="shadow-md rounded-3xl bg-white/90 border border-slate-200">
@@ -124,12 +155,12 @@ const ExamReviewPage = () => {
                     </span>
                     <span
                       className={`px-2.5 py-0.5 rounded-full border text-xs ${
-                        percentage >= 70
+                        percentage >= 50
                           ? "bg-emerald-50 text-emerald-700 border-emerald-200"
                           : "bg-rose-50 text-rose-700 border-rose-200"
                       }`}
                     >
-                      {percentage >= 70 ? "Đạt" : "Không đạt"}
+                      {percentage >= 50 ? "Đạt" : "Không đạt"}
                     </span>
                   </div>
                   <div className="mt-3">
@@ -142,7 +173,7 @@ const ExamReviewPage = () => {
               </CardHeader>
             </Card>
 
-            {/* Thẻ câu hỏi + kết quả */}
+            {/* Thẻ câu hỏi */}
             <Card className="shadow-lg rounded-3xl bg-white/95 border border-slate-200">
               <CardHeader className="pb-3 px-5 pt-5">
                 <div className="flex items-center justify-between gap-3">
@@ -186,6 +217,78 @@ const ExamReviewPage = () => {
               </CardHeader>
 
               <CardContent className="px-5 pb-5 pt-1 space-y-4">
+                {/* reading_cloze: nhiều câu con */}
+                {question.type === "reading_cloze" &&
+                  question.subQuestions &&
+                  question.subQuestions.length > 0 && (
+                    <div className="mt-4 space-y-5">
+                      {question.subQuestions.map((sub, subIdx) => {
+                        const subAnswers = Array.isArray(answers[currentIndex])
+                          ? (answers[currentIndex] as string[])
+                          : [];
+                        const selected =
+                          (subAnswers[subIdx] || "").trim().toLowerCase();
+                        const correctText =
+                          (sub.options?.[sub.correctIndex] || "")
+                            .trim()
+                            .toLowerCase();
+
+                        return (
+                          <div
+                            key={subIdx}
+                            className="border-t border-slate-100 pt-4"
+                          >
+                            <p className="text-sm font-semibold text-slate-800 mb-2">
+                              {sub.label ||
+                                `Question ${currentIndex + 1}.${subIdx + 1}`}
+                            </p>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                              {sub.options?.map((opt, optIdx) => {
+                                const optNorm = opt.trim().toLowerCase();
+                                const isCorrectOption =
+                                  optNorm === correctText;
+                                const isUserOption = optNorm === selected;
+
+                                let optionClasses =
+                                  "h-full w-full py-3 px-2 rounded-2xl text-xs md:text-sm transition-all duration-150 border flex items-center justify-center";
+
+                                if (isCorrectOption) {
+                                  optionClasses +=
+                                    " bg-emerald-500 text-white border-emerald-600 shadow-md";
+                                } else if (isUserOption && !isCorrectOption) {
+                                  optionClasses +=
+                                    " bg-rose-500 text-white border-rose-600 shadow-md";
+                                } else {
+                                  optionClasses +=
+                                    " bg-white border-slate-200 text-slate-800";
+                                }
+
+                                return (
+                                  <div key={optIdx} className={optionClasses}>
+                                    <span className="flex flex-row items-center justify-center gap-3">
+                                      <span
+                                        className={`w-8 h-8 flex items-center justify-center rounded-full text-sm font-semibold ${
+                                          isCorrectOption || isUserOption
+                                            ? "bg-black/10"
+                                            : "bg-slate-100 text-slate-700"
+                                        }`}
+                                      >
+                                        {String.fromCharCode(65 + optIdx)}
+                                      </span>
+                                      <span className="text-sm md:text-base">
+                                        {opt}
+                                      </span>
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
                 {/* Multiple Choice */}
                 {question.type === "multiple_choice" &&
                   question.options &&
@@ -276,12 +379,13 @@ const ExamReviewPage = () => {
                 {question.type === "fill_blank" && (
                   <div className="space-y-3 text-sm md:text-base">
                     <div
-                      className={`px-3 py-2 rounded-2xl border ${!isAnswered
-                        ? "bg-slate-50 border-slate-200 text-slate-500"
-                        : isCorrect
-                        ? "bg-emerald-50 border-emerald-200 text-emerald-800"
-                        : "bg-rose-50 border-rose-200 text-rose-800"
-                        }`}
+                      className={`px-3 py-2 rounded-2xl border ${
+                        !isAnswered
+                          ? "bg-slate-50 border-slate-200 text-slate-500"
+                          : isCorrect
+                          ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                          : "bg-rose-50 border-rose-200 text-rose-800"
+                      }`}
                     >
                       <span className="font-semibold">Câu trả lời của bạn: </span>
                       <span>
@@ -328,10 +432,39 @@ const ExamReviewPage = () => {
               <div className="grid grid-cols-8 sm:grid-cols-10 lg:grid-cols-5 gap-2 justify-items-center">
                 {exam.questions.map((q, idx) => {
                   const ans = answers[idx];
-                  const ansNorm = ans?.trim().toLowerCase() || "";
-                  const correctNorm = String(q.answer).trim().toLowerCase();
-                  const answered = !!ansNorm;
-                  const correct = answered && ansNorm === correctNorm;
+
+                  let answered = false;
+                  let correct = false;
+
+                  if (q.type === "reading_cloze" && q.subQuestions?.length) {
+                    const subAns = Array.isArray(ans) ? (ans as string[]) : [];
+                    answered = subAns.some(
+                      (a) => a && a.trim().toLowerCase() !== ""
+                    );
+                    correct =
+                      answered &&
+                      q.subQuestions.every((sub, i) => {
+                        const user = (subAns[i] || "")
+                          .trim()
+                          .toLowerCase();
+                        const corr =
+                          (sub.options?.[sub.correctIndex] || "")
+                            .trim()
+                            .toLowerCase();
+                        return user === corr;
+                      });
+                  } else {
+                    const ansNorm =
+                      (typeof ans === "string" ? ans : "")
+                        .trim()
+                        .toLowerCase() || "";
+                    const correctNorm = String(q.answer)
+                      .trim()
+                      .toLowerCase();
+                    answered = !!ansNorm;
+                    correct = answered && ansNorm === correctNorm;
+                  }
+
                   const isCurrent = idx === currentIndex;
 
                   let baseClasses =

@@ -26,8 +26,11 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/admin", label: "Trang chủ", icon: LayoutDashboard },
   { to: "/admin/users", label: "Người dùng", icon: Users },
   { to: "/admin/tests", label: "Đề thi", icon: FileText },
+  { to: "/admin/AdminMocdata", label: "Đề thi thử", icon: FileText },
   { to: "/admin/questions", label: "Câu hỏi", icon: BookOpen },
   { to: "/admin/feedback", label: "Phản hồi học viên", icon: MessageSquare },
+
+  
 ];
 
 export function AdminSidebar() {

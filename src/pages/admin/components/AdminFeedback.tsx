@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef  } from "react";
 import api from "@/api/Api";
 import {
   Card,
@@ -14,13 +14,21 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { MessageCircle, User, Loader2 } from "lucide-react";
+import { io, Socket } from "socket.io-client";
 
 export default function AdminFeedback() {
   const [feedbacks, setFeedbacks] = useState<any[]>([]);
   const [replyText, setReplyText] = useState<Record<string, string>>({});
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [loading, setLoading] = useState<boolean>(true);
-
+  const [socket, setSocket] = useState<Socket | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const scrollToBottom = () => {
+    // cho DOM render xong rồi mới scroll
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, 50);
+  };
   const fetchFeedbacks = async () => {
     try {
       setLoading(true);
@@ -36,7 +44,43 @@ export default function AdminFeedback() {
   useEffect(() => {
     fetchFeedbacks();
   }, []);
-
+  useEffect(() => {
+    // kết nối socket
+    const s = io("http://localhost:5000", {
+      query: {
+        token: localStorage.getItem("token") || "",
+      },
+    });
+  
+    setSocket(s);
+  
+    // Khi có feedback mới từ học sinh
+    s.on("admin_new_message", (fb: any) => {
+      setFeedbacks((prev) => {
+        // tránh trùng nếu đã tồn tại
+        const idx = prev.findIndex((x) => x._id === fb._id);
+        if (idx !== -1) {
+          const next = [...prev];
+          next[idx] = { ...next[idx], ...fb };
+          return next;
+        }
+        // thêm lên đầu (hoặc cuối tuỳ UI)
+        return [fb, ...prev];
+      });
+    });
+  
+    // (tuỳ bạn) nếu muốn nhận luôn update khi giáo viên khác reply từ nơi khác,
+    // có thể nghe thêm event khác như "receive_message_for_admin"
+  
+    return () => {
+      s.off("admin_new_message");
+      s.disconnect();
+    };
+  }, []);
+  useEffect(() => {
+    if (!selectedUser) return;
+    scrollToBottom();
+  }, [feedbacks, selectedUser]);
   const handleReply = async (feedbackId: string) => {
     if (!selectedUser) return;
     const text = replyText[selectedUser._id];
@@ -52,6 +96,22 @@ export default function AdminFeedback() {
     }
   };
 
+  const handleEndConversation = async () => {
+    if (!selectedUser || userFeedbacks.length === 0) {
+      return toast.error("Không có hội thoại nào để kết thúc.");
+    }
+
+    const last = userFeedbacks[userFeedbacks.length - 1];
+
+    try {
+      await api.post(`/feedback/${last._id}/end-conversation`);
+      toast.success("Đã kết thúc cuộc hội thoại với học sinh.");
+      fetchFeedbacks();
+    } catch {
+      toast.error("Lỗi khi kết thúc hội thoại.");
+    }
+  };
+
   // Unique users có feedback
   const users = [
     ...new Map(
@@ -63,24 +123,44 @@ export default function AdminFeedback() {
 
   const userFeedbacks = selectedUser
     ? feedbacks
-        .filter((fb) => fb.user?._id === selectedUser._id)
-        .slice()
-        .sort(
-          (a, b) =>
-            new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-        )
+      .filter((fb) => fb.user?._id === selectedUser._id)
+      .slice()
+      .sort(
+        (a, b) =>
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      )
     : [];
 
- // Chỉ hiện số chưa đọc nếu chưa click vào user đó
-const unreadCount = (userId: string) => {
-  // Nếu đang mở cuộc hội thoại với user này -> coi như đã đọc, không hiện badge
-  if (selectedUser && selectedUser._id === userId) return 0;
+  const userEnded = userFeedbacks.some((fb) => fb.ended);
+  const hasTeacherReply = userFeedbacks.some((fb) => fb.reply);
 
-  return feedbacks.filter(
-    (fb) => fb.user?._id === userId && !fb.reply
-  ).length;
-};
+  // Chấp nhận yêu cầu liên hệ
+  const handleAcceptRequest = async () => {
+    if (!selectedUser || userFeedbacks.length === 0) {
+      return toast.error("Không có yêu cầu nào để chấp nhận.");
+    }
 
+    const last = userFeedbacks[userFeedbacks.length - 1];
+
+    try {
+      await api.post(`/feedback/${last._id}/reply`, {
+        reply:
+          "Thầy/cô đã nhận được yêu cầu, em cứ gửi câu hỏi tại đây nhé.",
+      });
+      toast.success("Đã chấp nhận yêu cầu và mở cuộc hội thoại.");
+      fetchFeedbacks();
+    } catch {
+      toast.error("Lỗi khi chấp nhận yêu cầu.");
+    }
+  };
+
+  // Chỉ hiện số chưa đọc nếu chưa click vào user đó
+  const unreadCount = (userId: string) => {
+    if (selectedUser && selectedUser._id === userId) return 0;
+    return feedbacks.filter(
+      (fb) => fb.user?._id === userId && !fb.reply
+    ).length;
+  };
 
   if (loading) {
     return (
@@ -109,7 +189,10 @@ const unreadCount = (userId: string) => {
               Xem và trả lời góp ý, câu hỏi của học sinh theo dạng hội thoại.
             </p>
           </div>
-          <Badge variant="outline" className="self-start md:self-auto border-primary/30">
+          <Badge
+            variant="outline"
+            className="self-start md:self-auto border-primary/30"
+          >
             Tổng số cuộc hội thoại: {users.length || 0}
           </Badge>
         </div>
@@ -208,9 +291,47 @@ const unreadCount = (userId: string) => {
                           </p>
                         </div>
                       </div>
-                      <Badge variant="outline" className="text-[11px] border-emerald-200 text-emerald-700">
+
+                      <Badge
+                        variant="outline"
+                        className="text-[11px] border-emerald-200 text-emerald-700"
+                      >
                         Học sinh đang chọn
                       </Badge>
+
+                      <div className="flex items-center gap-2">
+                        {!userEnded &&
+                          !hasTeacherReply &&
+                          userFeedbacks.length > 0 ? (
+                          <>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="rounded-full text-[11px] border-emerald-300 text-emerald-700"
+                              onClick={handleAcceptRequest}
+                            >
+                              Chấp nhận yêu cầu
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="rounded-full text-[11px] border-rose-300 text-rose-700"
+                              onClick={handleEndConversation}
+                            >
+                              Từ chối
+                            </Button>
+                          </>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="rounded-full text-[11px]"
+                            onClick={handleEndConversation}
+                          >
+                            Kết thúc hội thoại
+                          </Button>
+                        )}
+                      </div>
                     </div>
 
                     {/* Messages */}
@@ -254,7 +375,9 @@ const unreadCount = (userId: string) => {
                                   <p className="mt-1 text-[11px] text-indigo-100/90 text-right">
                                     GV •{" "}
                                     {new Date(
-                                      fb.updatedAt ?? fb.repliedAt ?? fb.createdAt
+                                      fb.updatedAt ??
+                                      fb.repliedAt ??
+                                      fb.createdAt
                                     ).toLocaleString("vi-VN", {
                                       hour: "2-digit",
                                       minute: "2-digit",
@@ -268,6 +391,7 @@ const unreadCount = (userId: string) => {
                           </div>
                         ))
                       )}
+                       <div ref={messagesEndRef} />
                     </div>
 
                     {/* Input */}
@@ -288,28 +412,27 @@ const unreadCount = (userId: string) => {
                         <Button
                           className="rounded-2xl bg-indigo-600 px-5 shadow-sm hover:bg-indigo-700 hover:shadow-md transition-all"
                           onClick={() => {
-                            if (
-                              !replyText[selectedUser._id]?.trim()
-                            ) {
+                            const text = replyText[selectedUser._id]?.trim();
+                            if (!text) {
+                              return toast.error("Vui lòng nhập phản hồi!");
+                            }
+
+                            // luôn gửi gắn với tin nhắn mới nhất của học sinh
+                            if (userFeedbacks.length === 0) {
                               return toast.error(
-                                "Vui lòng nhập phản hồi!"
+                                "Chưa có lịch sử nào với học sinh này để gắn phản hồi."
                               );
                             }
-                            const pending = userFeedbacks.find(
-                              (fb) => !fb.reply
-                            );
-                            if (!pending) {
-                              return toast.error(
-                                "Không có tin nhắn nào đang chờ phản hồi!"
-                              );
-                            }
-                            handleReply(pending._id);
+
+                            const last = userFeedbacks[userFeedbacks.length - 1];
+                            handleReply(last._id);
                           }}
                         >
                           Gửi
                         </Button>
                       </div>
                     </div>
+
                   </>
                 ) : (
                   <div className="flex flex-1 flex-col items-center justify-center gap-3 text-muted-foreground animate-fade-in">

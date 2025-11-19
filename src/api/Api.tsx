@@ -161,7 +161,23 @@ export const testAPI = {
     questions: string[];
   }): Promise<AxiosResponse> => api.post("/exams/save", exam),
 };
-
+export const mockExamAPI = {
+  getAll(params?: { examType?: string; active?: boolean }) {
+    return api.get("/mock-exams", { params });
+  },
+  getDetail(idOrSlug: string) {
+    return api.get(`/mock-exams/${idOrSlug}`);
+  },
+  create(data: any) {
+    return api.post("/mock-exams", data);
+  },
+  update(id: string, data: any) {
+    return api.put(`/mock-exams/${id}`, data);
+  },
+  delete(id: string) {
+    return api.delete(`/mock-exams/${id}`);
+  },
+};
 // ----------------- RESULT -----------------
 export const resultAPI = {
   create: (data: ResultData): Promise<AxiosResponse> => api.post("/results", data),
@@ -205,14 +221,31 @@ export type UpcomingExam = {
   duration?: number;
   skill?: string;
 };
+export type InProgressExam = {
+  _id: string;        // id của document progress
+  examId: string;     // id bài thi gốc (Test hoặc MockExam)
+  title: string;
+  isMock?: boolean;   // true = mockExam, false = test thường
+  duration?: number;  // phút
+  timeLeft?: number;  // giây còn lại
+  skill?: string;     // ví dụ: "Reading", "mixed", "thptqg"
+  updatedAt: string;  // ISO date – lần lưu gần nhất
+};
 export type DashboardMe = {
   quickStats: QuickStats;
   recentActivities: RecentActivity[];
   upcomingExams: UpcomingExam[];
+  inProgressExams?: InProgressExam[];   // 👈 THÊM DÒNG NÀY
+
 };
 
 export const dashboardAPI = {
   me: (): Promise<AxiosResponse<DashboardMe>> => api.get("/dashboard/me"),
+
+};
+export const examProgressAPI = {
+  me: (): Promise<AxiosResponse<InProgressExam[]>> =>
+    api.get("/exam-progress/me"),
 };
 // ----------------- EXPORT -----------------
 export default api;

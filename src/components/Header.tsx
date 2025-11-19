@@ -5,6 +5,7 @@ import { LogIn, LogOut, User as UserIcon, BarChart3, LayoutDashboard, Target, Br
 import { useAuth } from "@/data/AuthContext.jsx";
 import AuthDialog from "@/pages/user/AuthDialog";
 import { useLocation } from "react-router-dom";
+import { ClipboardList } from "lucide-react";
 
 export default function Header() {
   const { user, logout, setUser } = useAuth();
@@ -39,12 +40,15 @@ export default function Header() {
 
   // Menu items
   const items = [
-    { title: "Luyện tập", url: "/practice", icon: Target },
+    
   ];
 
   if (user && user.role === "student") {
     items.push(
+      { title: "Luyện tập", url: "/practice", icon: Target },
       { title: "Cải thiện", url: "/adaptive", icon: Brain },
+      { title: "Thi thử", url: "/mock-exams", icon: ClipboardList  },
+  
       { title: "Bảng xếp hạng", url: "/leaderboard", icon: BarChart3 }
     );
   }
