@@ -10,6 +10,14 @@ interface Result {
     title?: string;
     duration?: number;
   } | null;
+  mockExam: {
+    name?: string;
+    officialName?: string;
+    examType?: string; // ví dụ: "thpt_qg", "ielts"...
+    grade?: string;
+    year?: number;
+    duration?: number;
+  } | null;
   score: number; // thang 10
   timeSpent: number; // seconds
   finishedAt: string;
@@ -99,6 +107,24 @@ const Results = () => {
     });
   };
 
+  const getExamTitle = (r: Result) => {
+    return (
+      r.test?.title ||
+      r.mockExam?.officialName ||
+      r.mockExam?.name ||
+      "Không có tên bài test"
+    );
+  };
+
+  const getExamBadge = (r: Result) => {
+    if (r.mockExam) {
+      const year = r.mockExam.year ? ` ${r.mockExam.year}` : "";
+      // tuỳ bạn: check examType === "thpt_qg" thì ghi rõ
+      return `Đề THPT QG${year}`;
+    }
+    return "Đề luyện tập";
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-sky-50 via-indigo-50/40 to-slate-50">
       <div className="max-w-6xl mx-auto p-6 md:p-8 space-y-8 animate-fade-in">
@@ -126,7 +152,7 @@ const Results = () => {
           </div>
         </div>
 
-        {/* Stats (có stagger animation) */}
+        {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Card
             className="border-0 shadow-md bg-gradient-to-br from-sky-50 to-sky-100 animate-slide-in"
@@ -210,16 +236,14 @@ const Results = () => {
           </Card>
         </div>
 
-        {/* Recent Results */}
+        {/* Recent Results: gồm cả đề luyện + THPT QG (mockExam) */}
         <Card className="border border-slate-200/70 shadow-md bg-white/90 backdrop-blur animate-slide-in">
           <CardHeader className="flex flex-row items-center justify-between pb-3">
             <div>
               <CardTitle className="text-base md:text-lg font-semibold text-slate-900">
                 Kết quả gần đây
               </CardTitle>
-              <p className="text-xs text-slate-500 mt-1">
-                Chi tiết điểm số từng bài kiểm tra bạn đã làm
-              </p>
+         
             </div>
           </CardHeader>
 
@@ -235,6 +259,8 @@ const Results = () => {
                 .filter(Boolean);
 
               const isGood = safeScore >= 7;
+              const examTitle = getExamTitle(result);
+              const examTypeLabel = getExamBadge(result);
 
               return (
                 <div
@@ -244,13 +270,33 @@ const Results = () => {
                 >
                   <div className="flex items-center justify-between gap-3 mb-3">
                     <div className="flex flex-col gap-1">
-                      <h3 className="font-semibold text-slate-900">
-                        {result.test?.title ?? "Không có tên bài test"}
-                      </h3>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="font-semibold text-slate-900">
+                          {examTitle}
+                        </h3>
+                        <span
+                          className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-medium ${
+                            result.mockExam
+                              ? "bg-indigo-50 text-indigo-700 border border-indigo-100"
+                              : "bg-emerald-50 text-emerald-700 border border-emerald-100"
+                          }`}
+                        >
+                          {examTypeLabel}
+                        </span>
+                      </div>
+
                       <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
                         <span>{formatDate(result.finishedAt)}</span>
                         <span className="w-1 h-1 rounded-full bg-slate-300" />
                         <span>Thời gian làm: {durationMinutes} phút</span>
+
+                        {result.mockExam?.grade && (
+                          <>
+                            <span className="w-1 h-1 rounded-full bg-slate-300" />
+                            <span>Lớp: {result.mockExam.grade}</span>
+                          </>
+                        )}
+
                         {topSkills.length > 0 && (
                           <>
                             <span className="w-1 h-1 rounded-full bg-slate-300" />

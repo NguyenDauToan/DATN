@@ -22,13 +22,19 @@ export default function AdminFeedback() {
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [socket, setSocket] = useState<Socket | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+
   const scrollToBottom = () => {
-    // cho DOM render xong rồi mới scroll
     setTimeout(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      const el = messagesContainerRef.current;
+      if (!el) return;
+      el.scrollTo({
+        top: el.scrollHeight,
+        behavior: "smooth",
+      });
     }, 50);
   };
+  
   const fetchFeedbacks = async () => {
     try {
       setLoading(true);
@@ -81,6 +87,7 @@ export default function AdminFeedback() {
     if (!selectedUser) return;
     scrollToBottom();
   }, [feedbacks, selectedUser]);
+  
   const handleReply = async (feedbackId: string) => {
     if (!selectedUser) return;
     const text = replyText[selectedUser._id];
@@ -335,7 +342,7 @@ export default function AdminFeedback() {
                     </div>
 
                     {/* Messages */}
-                    <div className="flex-1 space-y-3 overflow-y-auto bg-muted/40 px-5 py-4 animate-fade-in">
+                    <div  ref={messagesContainerRef} className="flex-1 space-y-3 overflow-y-auto bg-muted/40 px-5 py-4 animate-fade-in">
                       {userFeedbacks.length === 0 ? (
                         <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
                           Học sinh này chưa gửi phản hồi nào.
@@ -391,7 +398,6 @@ export default function AdminFeedback() {
                           </div>
                         ))
                       )}
-                       <div ref={messagesEndRef} />
                     </div>
 
                     {/* Input */}
