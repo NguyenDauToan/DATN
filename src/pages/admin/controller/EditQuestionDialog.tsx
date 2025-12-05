@@ -34,7 +34,7 @@ export const EditQuestionDialog = ({ question, onSuccess }: EditQuestionDialogPr
     useEffect(() => {
         const fetchSkills = async () => {
           try {
-            const res = await axios.get("http://localhost:5000/api/skills", {
+            const res = await axios.get("https://english-backend-uoic.onrender.com/api/skills", {
               headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
             });
             // res.data là mảng skill trực tiếp
@@ -61,7 +61,7 @@ export const EditQuestionDialog = ({ question, onSuccess }: EditQuestionDialogPr
         try {
             setLoading(true);
             await axios.put(
-                `http://localhost:5000/api/questions/${question._id}`,
+                `https://english-backend-uoic.onrender.com/api/questions/${question._id}`,
                 { content, answer, grade, type, level, skill },
                 { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } }
             );

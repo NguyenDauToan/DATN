@@ -66,7 +66,7 @@ export function AdminNavbar() {
   // Kết nối socket và lắng nghe thông báo
   useEffect(() => {
     const token = localStorage.getItem("token") || "";
-    const s = io("http://localhost:5000", {
+    const s = io("https://english-backend-uoic.onrender.com", {
       query: { token },
     });
 

@@ -248,7 +248,7 @@ function AddMockExamDialog({
     try {
       setLoadingSchoolYear(true);
       const res = await axios.get(
-        "http://localhost:5000/api/mock-exams/meta/current-year",
+        "https://english-backend-uoic.onrender.com/api/mock-exams/meta/current-year",
         {
           headers: { Authorization: `Bearer ${tokenLocal}` },
         }
@@ -340,7 +340,7 @@ function AddMockExamDialog({
 
     try {
       setLoadingQuestions(true);
-      const res = await axios.get("http://localhost:5000/api/questions/filter", {
+      const res = await axios.get("https://english-backend-uoic.onrender.com/api/questions/filter", {
         headers: { Authorization: `Bearer ${tokenLocal}` },
         params: { grade: queryGrade },
       });
@@ -369,7 +369,7 @@ function AddMockExamDialog({
 
     try {
       setLoadingSchools(true);
-      const res = await axios.get("http://localhost:5000/api/admin/schools", {
+      const res = await axios.get("https://english-backend-uoic.onrender.com/api/admin/schools", {
         headers: { Authorization: `Bearer ${tokenLocal}` },
       });
       const data: School[] = (res.data?.schools || res.data || []) as School[];
@@ -401,7 +401,7 @@ function AddMockExamDialog({
       }
 
       const res = await axios.get(
-        "http://localhost:5000/api/admin/classrooms",
+        "https://english-backend-uoic.onrender.com/api/admin/classrooms",
         {
           headers: { Authorization: `Bearer ${tokenLocal}` },
           params,
@@ -533,7 +533,7 @@ function AddMockExamDialog({
     try {
       setSubmitting(true);
       await axios.post(
-        "http://localhost:5000/api/mock-exams",
+        "https://english-backend-uoic.onrender.com/api/mock-exams",
         {
           name: form.name,
           examType: form.examType,
@@ -616,7 +616,7 @@ function AddMockExamDialog({
     try {
       setSubmitting(true);
       await axios.post(
-        "http://localhost:5000/api/mock-exams/auto-generate",
+        "https://english-backend-uoic.onrender.com/api/mock-exams/auto-generate",
         {
           gradeKey,
           name: form.name?.trim() || undefined,
@@ -724,7 +724,7 @@ function AddMockExamDialog({
     try {
       setSubmitting(true);
       await axios.post(
-        "http://localhost:5000/api/mock-exams",
+        "https://english-backend-uoic.onrender.com/api/mock-exams",
         {
           name: form.name,
           examType: form.examType,
@@ -1306,7 +1306,7 @@ export default function AdminMockExams() {
         return;
       }
 
-      const res = await axios.get("http://localhost:5000/api/mock-exams", {
+      const res = await axios.get("https://english-backend-uoic.onrender.com/api/mock-exams", {
         headers: { Authorization: `Bearer ${tokenLocal}` },
       });
 
@@ -1342,7 +1342,7 @@ export default function AdminMockExams() {
       setSelectedExam(null);
 
       const res = await axios.get(
-        `http://localhost:5000/api/mock-exams/${id}`,
+        `https://english-backend-uoic.onrender.com/api/mock-exams/${id}`,
         {
           headers: { Authorization: `Bearer ${tokenLocal}` },
         }
@@ -1412,7 +1412,7 @@ export default function AdminMockExams() {
       setEditSubmitting(true);
 
       await axios.put(
-        `http://localhost:5000/api/mock-exams/${editingExam._id}`,
+        `https://english-backend-uoic.onrender.com/api/mock-exams/${editingExam._id}`,
         {
           name: editingExam.name?.trim(),
           duration: editingExam.duration,
@@ -1519,7 +1519,7 @@ export default function AdminMockExams() {
 
     try {
       await axios.patch(
-        `http://localhost:5000/api/mock-exams/${id}/archive`,
+        `https://english-backend-uoic.onrender.com/api/mock-exams/${id}/archive`,
         null,
         {
           headers: { Authorization: `Bearer ${tokenLocal}` },
