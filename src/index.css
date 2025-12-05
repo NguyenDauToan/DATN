@@ -156,9 +156,30 @@ html, body {
 }
 
 /* Giữ không gian cố định cho scrollbar (trình duyệt mới) */
-html {
-  scrollbar-gutter: stable;
+/* Ẩn scrollbar toàn web nhưng vẫn cuộn được */
+
+/* Chrome, Edge, Safari, Opera */
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
+
+/* Firefox */
+html,
+body {
+  scrollbar-width: none;
+}
+
+/* Nếu muốn chắc chắn ẩn luôn cho các container con dùng overflow-auto/scroll */
+*::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+* {
+  scrollbar-width: none;
+}
+
 @keyframes chat-in {
   0% {
     opacity: 0;
@@ -220,4 +241,43 @@ html {
     @apply bg-background text-foreground;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   }
+}
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/* Chỉ body được phép scroll dọc */
+html {
+  overflow: hidden;
+}
+
+body {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+/* body ở trang login: không cho cuộn + ẩn luôn thanh scrollbar */
+body.login-no-scroll {
+  overflow: hidden;
+  margin: 0;
+}
+
+/* Ẩn scrollbar trên Chrome, Edge, Safari */
+body.login-no-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* Ẩn scrollbar trên Firefox */
+body.login-no-scroll {
+  scrollbar-width: none;
+}
+.login-card-scroll {
+  -ms-overflow-style: none;  /* IE, Edge */
+  scrollbar-width: none;     /* Firefox */
+}
+
+.login-card-scroll::-webkit-scrollbar {
+  display: none;             /* Chrome, Safari, Opera */
 }

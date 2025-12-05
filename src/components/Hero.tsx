@@ -2,8 +2,7 @@ import { Button } from "@/components/ui/button";
 import { ArrowRight, BookOpen } from "lucide-react";
 import heroImage from "@/assets/hero-learning.jpg";
 import { useState } from "react";
-import { useAuth } from "@/data/AuthContext.jsx";
-import AuthDialog from "@/pages/user/AuthDialog";
+import { useAuth } from "@/data/AuthContext.js";
 
 interface HeroProps {
     onCTAClick?: () => void; // khai báo props
@@ -56,11 +55,7 @@ interface HeroProps {
                             Xem thêm
                         </Button>
                     </div>
-                    <AuthDialog
-                        open={openAuth}
-                        onClose={() => setOpenAuth(false)}
-                        onLoginSuccess={handleLoginSuccess}
-                    />
+               
                 </div>
             </div>
         </section>

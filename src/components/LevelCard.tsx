@@ -8,36 +8,36 @@ interface LevelCardProps {
   level: LevelOrGrade;
   description: string;
   isCompleted?: boolean;
-  progress?: number;   // 0–100, nếu không truyền thì mặc định 0
+  progress?: number;   // 0–100
+  examCount?: number;  // 👈 thêm prop
   onClick: () => void;
 }
 
-// 🎨 Màu cho từng cấp/lớp
-const levelColors: Record<LevelOrGrade, string> = {
-  A1: "from-green-500 to-green-600",
-  A2: "from-blue-500 to-blue-600",
-  B1: "from-yellow-500 to-yellow-600",
-  B2: "from-orange-500 to-orange-600",
-  C1: "from-red-500 to-red-600",
-  C2: "from-purple-500 to-purple-600",
-  "6": "from-cyan-500 to-cyan-600",
-  "7": "from-sky-500 to-sky-600",
-  "8": "from-indigo-500 to-indigo-600",
-  "9": "from-violet-500 to-violet-600",
-  "10": "from-fuchsia-500 to-fuchsia-600",
-  "11": "from-pink-500 to-pink-600",
-  "12": "from-rose-500 to-rose-600",
-  thptqg: "from-gray-500 to-gray-600",
-};
+  const levelColors: Record<LevelOrGrade, string> = {
+    A1: "from-green-500 to-green-600",
+    A2: "from-blue-500 to-blue-600",
+    B1: "from-yellow-500 to-yellow-600",
+    B2: "from-orange-500 to-orange-600",
+    C1: "from-red-500 to-red-600",
+    C2: "from-purple-500 to-purple-600",
+    "6": "from-cyan-500 to-cyan-600",
+    "7": "from-sky-500 to-sky-600",
+    "8": "from-indigo-500 to-indigo-600",
+    "9": "from-violet-500 to-violet-600",
+    "10": "from-fuchsia-500 to-fuchsia-600",
+    "11": "from-pink-500 to-pink-600",
+    "12": "from-rose-500 to-rose-600",
+    thptqg: "from-gray-500 to-gray-600",
+  };
 
 export function LevelCard({
   level,
   description,
   isCompleted,
   progress = 0,
+  examCount = 0,
   onClick,
 }: LevelCardProps) {
-  // Đảm bảo progress nằm trong 0–100
   const safeProgress = Math.max(0, Math.min(progress, 100));
 
   return (
@@ -53,11 +53,17 @@ export function LevelCard({
               {level === "thptqg" ? "THPTQG" : `Lớp ${level}`}
             </h3>
             <p className="text-sm text-muted-foreground">{description}</p>
+
+            {/* 👇 thêm dòng hiển thị số bài thi */}
+            <p className="text-xs text-muted-foreground mt-1">
+              {examCount > 0
+                ? `${examCount} bài thi khả dụng`
+                : "Chưa có bài thi nào"}
+            </p>
           </div>
           {isCompleted && <CheckCircle2 className="h-6 w-6 text-success" />}
         </div>
 
-        {/* Luôn hiển thị tiến độ, kể cả 0% */}
         <div className="space-y-2">
           <div className="flex justify-between text-xs">
             <span className="text-muted-foreground">Tiến độ</span>

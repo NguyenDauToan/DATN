@@ -41,18 +41,26 @@ import { toast } from "sonner";
 import ViewExamDialog from "./controller/ViewExamDialog";
 import EditExamDialog from "./controller/EditExamDialog";
 
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+
 export default function AdminTests() {
   const [searchTerm, setSearchTerm] = useState("");
   const [exams, setExams] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [openExamId, setOpenExamId] = useState<string | null>(null);
   const [editExamId, setEditExamId] = useState<string | null>(null);
-  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const token =
+    typeof window !== "undefined" ? localStorage.getItem("token") : null;
 
   const loadExams = async () => {
+    if (!token) {
+      toast.error("Thiếu token đăng nhập");
+      return;
+    }
     try {
       setLoading(true);
-      const res = await axios.get("http://localhost:5000/api/exams", {
+      const res = await axios.get(`${API_BASE_URL}/api/exams`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setExams(res.data);
@@ -80,6 +88,22 @@ export default function AdminTests() {
     0
   );
 
+  const renderScopeInfo = (exam: any) => {
+    if (exam.classroom && exam.classroom.name) {
+      const schoolName = exam.school?.name
+        ? `Trường ${exam.school.name}`
+        : "Trường ?";
+      const className = `Lớp ${exam.classroom.name}`;
+      return `${schoolName} · ${className}`;
+    }
+
+    if (exam.school && exam.school.name) {
+      return `Trường ${exam.school.name}`;
+    }
+
+    return "Chưa gắn trường / lớp";
+  };
+
   const getLevelBadge = (level: string) => {
     const map: Record<string, string> = {
       easy: "bg-emerald-50 text-emerald-700 border border-emerald-200",
@@ -91,22 +115,71 @@ export default function AdminTests() {
       level === "easy"
         ? "Dễ"
         : level === "medium"
-        ? "Trung bình"
-        : level === "hard"
-        ? "Khó"
-        : level;
+          ? "Trung bình"
+          : level === "hard"
+            ? "Khó"
+            : level;
 
     return (
-      <Badge className={map[level] || "bg-slate-50 text-slate-700 border border-slate-200"}>
+      <Badge
+        className={
+          map[level] ||
+          "bg-slate-50 text-slate-700 border border-slate-200"
+        }
+      >
         {label}
       </Badge>
     );
   };
 
+  const getStatusBadge = (status?: string) => {
+    if (!status) {
+      return (
+        <Badge className="bg-slate-50 text-slate-700 border border-slate-200">
+          Không rõ
+        </Badge>
+      );
+    }
+
+    if (status === "pending") {
+      return (
+        <Badge className="bg-amber-50 text-amber-700 border border-amber-200">
+          Chờ duyệt
+        </Badge>
+      );
+    }
+
+    if (status === "approved") {
+      return (
+        <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200">
+          Đã duyệt
+        </Badge>
+      );
+    }
+
+    if (status === "rejected") {
+      return (
+        <Badge className="bg-rose-50 text-rose-700 border border-rose-200">
+          Bị từ chối
+        </Badge>
+      );
+    }
+
+    return (
+      <Badge className="bg-slate-50 text-slate-700 border border-slate-200">
+        {status}
+      </Badge>
+    );
+  };
+
   const handleDeleteExam = async (id: string) => {
+    if (!token) {
+      toast.error("Thiếu token đăng nhập");
+      return;
+    }
     if (!confirm("Bạn có chắc chắn muốn xóa đề thi này?")) return;
     try {
-      await axios.delete(`http://localhost:5000/api/exams/${id}`, {
+      await axios.delete(`${API_BASE_URL}/api/exams/${id}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       toast.success("Đã xóa đề thi thành công");
@@ -120,7 +193,9 @@ export default function AdminTests() {
     return (
       <div className="flex flex-col items-center justify-center h-[60vh] gap-3 animate-fade-in">
         <div className="h-10 w-10 rounded-full border-4 border-primary/30 border-t-primary animate-spin" />
-        <p className="text-sm text-muted-foreground">Đang tải dữ liệu đề thi...</p>
+        <p className="text-sm text-muted-foreground">
+          Đang tải dữ liệu đề thi...
+        </p>
       </div>
     );
 
@@ -137,8 +212,8 @@ export default function AdminTests() {
               Quản lý đề thi
             </h1>
             <p className="text-xs md:text-sm text-muted-foreground max-w-xl">
-              Theo dõi, chỉnh sửa và tạo mới các đề thi. Tối ưu ngân hàng đề cho từng khối
-              lớp và mức độ.
+              Theo dõi, chỉnh sửa và tạo mới các đề thi. Tối ưu ngân hàng đề
+              cho từng khối lớp và mức độ.
             </p>
           </div>
 
@@ -198,7 +273,11 @@ export default function AdminTests() {
                 Lớp đang được dùng
               </span>
               <span className="text-xl font-semibold text-foreground">
-                {Array.from(new Set(exams.map((e) => e.grade))).filter(Boolean).length}
+                {
+                  Array.from(new Set(exams.map((e: any) => e.grade))).filter(
+                    Boolean
+                  ).length
+                }
               </span>
               <span className="text-[11px] text-muted-foreground">
                 Đa dạng theo khối lớp
@@ -212,15 +291,15 @@ export default function AdminTests() {
               </span>
               <span className="text-sm text-foreground">
                 <span className="font-semibold">
-                  {exams.filter((e) => e.level === "easy").length}
+                  {exams.filter((e: any) => e.level === "easy").length}
                 </span>{" "}
                 dễ ·{" "}
                 <span className="font-semibold">
-                  {exams.filter((e) => e.level === "medium").length}
+                  {exams.filter((e: any) => e.level === "medium").length}
                 </span>{" "}
                 TB ·{" "}
                 <span className="font-semibold">
-                  {exams.filter((e) => e.level === "hard").length}
+                  {exams.filter((e: any) => e.level === "hard").length}
                 </span>{" "}
                 khó
               </span>
@@ -266,6 +345,12 @@ export default function AdminTests() {
                     Lớp
                   </TableHead>
                   <TableHead className="font-semibold text-xs text-muted-foreground uppercase tracking-wide">
+                    Năm học
+                  </TableHead>
+                  <TableHead className="font-semibold text-xs text-muted-foreground uppercase tracking-wide">
+                    Trường / Lớp áp dụng
+                  </TableHead>
+                  <TableHead className="font-semibold text-xs text-muted-foreground uppercase tracking-wide">
                     Mức độ
                   </TableHead>
                   <TableHead className="font-semibold text-xs text-muted-foreground uppercase tracking-wide">
@@ -274,14 +359,18 @@ export default function AdminTests() {
                   <TableHead className="font-semibold text-xs text-muted-foreground uppercase tracking-wide">
                     Số câu hỏi
                   </TableHead>
+                  <TableHead className="font-semibold text-xs text-muted-foreground uppercase tracking-wide">
+                    Trạng thái
+                  </TableHead>
                   <TableHead className="text-right font-semibold text-xs text-muted-foreground uppercase tracking-wide">
                     Thao tác
                   </TableHead>
                 </TableRow>
               </TableHeader>
+
               <TableBody>
                 {filteredExams.length > 0 ? (
-                  filteredExams.map((exam, idx) => (
+                  filteredExams.map((exam: any, idx: number) => (
                     <TableRow
                       key={exam._id}
                       className="hover:bg-primary/5 transition-all cursor-pointer group"
@@ -301,12 +390,31 @@ export default function AdminTests() {
                       <TableCell className="text-sm text-muted-foreground">
                         {exam.grade || "-"}
                       </TableCell>
-                      <TableCell className="text-sm">{getLevelBadge(exam.level)}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground max-w-[180px]">
+                        {exam.schoolYear?.name || "Chưa gắn năm học"}
+                        {exam.schoolYear?.startDate && exam.schoolYear?.endDate && (
+                          <div className="text-[10px] text-muted-foreground/70">
+                            {new Date(exam.schoolYear.startDate).toLocaleDateString("vi-VN")}{" "}
+                            –{" "}
+                            {new Date(exam.schoolYear.endDate).toLocaleDateString("vi-VN")}
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground max-w-[220px]">
+                        {renderScopeInfo(exam)}
+                      </TableCell>
+
+                      <TableCell className="text-sm">
+                        {getLevelBadge(exam.level)}
+                      </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {exam.duration} phút
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {exam.questions?.length || 0}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {getStatusBadge(exam.status)}
                       </TableCell>
                       <TableCell className="text-right">
                         <DropdownMenu>
@@ -367,7 +475,7 @@ export default function AdminTests() {
                 ) : (
                   <TableRow>
                     <TableCell
-                      colSpan={6}
+                      colSpan={8}
                       className="text-center py-10 text-sm text-muted-foreground"
                     >
                       Không tìm thấy đề thi nào phù hợp với từ khóa hiện tại.
@@ -382,7 +490,10 @@ export default function AdminTests() {
 
       {/* Dialogs */}
       {openExamId && (
-        <ViewExamDialog examId={openExamId} onClose={() => setOpenExamId(null)} />
+        <ViewExamDialog
+          examId={openExamId}
+          onClose={() => setOpenExamId(null)}
+        />
       )}
       {editExamId && (
         <EditExamDialog

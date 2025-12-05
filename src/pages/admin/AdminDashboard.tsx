@@ -15,13 +15,10 @@ import { ResultStatsCard, RecentActivityCard } from "./components";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 type QuickStats = {
-  // tổng quan hệ thống
   totalUsers?: number;
   totalTests?: number;
   totalResults?: number;
   totalQuestions?: number;
-
-  // quick stats thêm từ backend
   examsToday?: number;
   onlineUsers?: number;
   newUsersThisWeek?: number;
@@ -32,6 +29,28 @@ type QuickStats = {
 type SkillStat = {
   skill: string;
   [key: string]: any;
+};
+
+type SchoolInfo = {
+  _id: string;
+  name: string;
+  code?: string;
+};
+
+type ClassInfo = {
+  _id: string;
+  name: string;
+  grade?: string;
+  code?: string;
+};
+
+type CurrentUser = {
+  name: string;
+  email: string;
+  role: string;
+  school?: SchoolInfo | null;
+  classroom?: ClassInfo | null;
+  classes?: ClassInfo[];
 };
 
 const StatTile = ({
@@ -65,10 +84,27 @@ const StatTile = ({
   </Card>
 );
 
+const prettyRole = (role?: string) => {
+  if (!role) return "";
+  switch (role) {
+    case "admin":
+      return "Quản trị hệ thống";
+    case "school_manager":
+      return "Quản lý trường";
+    case "teacher":
+      return "Giáo viên";
+    case "student":
+      return "Học viên";
+    default:
+      return role;
+  }
+};
+
 const AdminDashboard = () => {
   const [resultStats, setResultStats] = useState<SkillStat[]>([]);
   const [quickStats, setQuickStats] = useState<QuickStats>({});
   const [activities, setActivities] = useState<any[]>([]);
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [loading, setLoading] = useState(true);
 
   const token = localStorage.getItem("token");
@@ -78,13 +114,15 @@ const AdminDashboard = () => {
       try {
         setLoading(true);
 
-        const [resDashboard, resSkillStats] = await Promise.all([
-          axios.get("http://localhost:5000/api/admin/dashboard", {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
-          axios.get("http://localhost:5000/api/results/system/skill-stats", {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
+        const headers = { Authorization: `Bearer ${token}` };
+
+        const [resDashboard, resSkillStats, resMe] = await Promise.all([
+          axios.get("http://localhost:5000/api/admin/dashboard", { headers }),
+          axios.get(
+            "http://localhost:5000/api/results/system/skill-stats",
+            { headers }
+          ),
+          axios.get("http://localhost:5000/api/profile/me", { headers }),
         ]);
 
         const dashData = resDashboard.data || {};
@@ -97,6 +135,9 @@ const AdminDashboard = () => {
           ...statsObj[skill],
         }));
         setResultStats(statsArray);
+
+        const me = resMe.data?.user || resMe.data || null;
+        setCurrentUser(me);
       } catch (err) {
         console.error("Admin dashboard error:", err);
       } finally {
@@ -104,7 +145,9 @@ const AdminDashboard = () => {
       }
     };
 
-    fetchAll();
+    if (token) {
+      fetchAll();
+    }
   }, [token]);
 
   if (loading) {
@@ -120,12 +163,30 @@ const AdminDashboard = () => {
     );
   }
 
+  const role = currentUser?.role;
+  const schoolName = currentUser?.school?.name;
+  const classroomName = currentUser?.classroom?.name;
+
+  // Với teacher, backend trả về mảng classes: ClassInfo[]
+  const teacherClasses =
+    currentUser?.classes && currentUser.classes.length
+      ? currentUser.classes
+          .map((c) => c?.name)
+          .filter(Boolean) as string[]
+      : [];
+
+  const homeroomLabel =
+    role === "teacher" && teacherClasses.length > 0
+      ? `Phụ trách lớp: ${teacherClasses.join(", ")}`
+      : role === "student" && classroomName
+      ? `Lớp: ${classroomName}`
+      : "";
+
   return (
     <div className="bg-gradient-subtle min-h-[calc(100vh-4rem)] animate-fade-in">
       <div className="space-y-8">
         {/* HERO */}
         <section className="relative overflow-hidden rounded-3xl border border-primary/10 bg-gradient-to-r from-primary to-sky-500 px-6 py-6 md:px-8 md:py-7 text-primary-foreground shadow-md animate-slide-in">
-          {/* decorative blobs */}
           <div className="pointer-events-none absolute -top-24 -right-16 h-56 w-56 rounded-full bg-white/15 blur-3xl" />
           <div className="pointer-events-none absolute -bottom-32 -left-10 h-72 w-72 rounded-full bg-sky-300/20 blur-3xl" />
 
@@ -141,6 +202,27 @@ const AdminDashboard = () => {
                 Toàn cảnh hoạt động của học viên, đề thi và kết quả theo kỹ
                 năng trong hệ thống ExamPro.
               </p>
+
+              {currentUser && (
+                <div className="mt-3 text-xs md:text-sm space-y-1 text-primary-foreground/90">
+                  <p>
+                    Tài khoản:{" "}
+                    <span className="font-semibold">{currentUser.name}</span>{" "}
+                    · {prettyRole(currentUser.role)}
+                  </p>
+                  {schoolName && (
+                    <p>
+                      Trường:{" "}
+                      <span className="font-semibold">{schoolName}</span>
+                    </p>
+                  )}
+                  {homeroomLabel && (
+                    <p>
+                      {homeroomLabel}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="flex flex-col items-end gap-2 text-right">
@@ -202,9 +284,9 @@ const AdminDashboard = () => {
         </section>
 
         {/* MAIN GRID */}
-        <section className="grid grid-cols-1 gap-8 xl:grid-cols-[minmax(0,2fr)_minmax(0,1.3fr)]">
-          {/* SKILL STATS CHART */}
-          <Card className="rounded-3xl border border-border/80 bg-card/90 backdrop-blur-sm shadow-sm ring-1 ring-primary/10 animate-slide-in">
+        <section className="space-y-6">
+          {/* HÀNG 1: KẾT QUẢ THEO KỸ NĂNG */}
+          <Card className="rounded-3xl border border-border/80 bg-card/95 backdrop-blur-sm shadow-sm">
             <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">
               <div>
                 <CardTitle className="text-base md:text-lg font-semibold flex items-center gap-2">
@@ -212,11 +294,15 @@ const AdminDashboard = () => {
                 </CardTitle>
                 <p className="text-xs text-muted-foreground mt-1">
                   Điểm trung bình, độ chính xác và số câu đã làm theo từng kỹ
-                  năng.
+                  năng (tổng hợp toàn hệ thống hoặc trong phạm vi bạn quản lý).
                 </p>
               </div>
               <span className="rounded-full bg-primary/10 px-3 py-1 text-[11px] font-medium text-primary ring-1 ring-primary/20">
-                Toàn hệ thống
+                {role === "admin"
+                  ? "Toàn hệ thống"
+                  : schoolName
+                  ? `Trường: ${schoolName}`
+                  : "Phạm vi tài khoản"}
               </span>
             </CardHeader>
             <CardContent className="pt-2">
@@ -231,115 +317,112 @@ const AdminDashboard = () => {
             </CardContent>
           </Card>
 
-          {/* RIGHT COLUMN: ACTIVITY + TODAY INFO */}
-          <div className="space-y-6">
-            {/* RECENT ACTIVITY */}
-            <Card className="rounded-3xl border border-border/80 bg-card/90 backdrop-blur-sm shadow-sm ring-1 ring-primary/10 animate-slide-in">
+          {/* HÀNG 2: HOẠT ĐỘNG + THỐNG KÊ NHANH */}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-stretch">
+            {/* HOẠT ĐỘNG GẦN ĐÂY */}
+            <Card className="h-full flex flex-col rounded-3xl border border-border/80 bg-card/95 backdrop-blur-sm shadow-sm">
               <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">
                 <div>
                   <CardTitle className="text-base md:text-lg font-semibold flex items-center gap-2">
                     🕓 Hoạt động gần đây
                   </CardTitle>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Các bài làm mới nhất của học viên.
+                    Các bài làm mới nhất của học viên trong phạm vi bạn quản lý.
                   </p>
                 </div>
                 <span className="rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-medium text-emerald-700 ring-1 ring-emerald-100">
                   Realtime snapshot
                 </span>
               </CardHeader>
-              <CardContent className="pt-2">
-                <div className="overflow-hidden rounded-2xl border border-border/70 bg-background/80">
+              <CardContent className="pt-2 flex-1 flex flex-col">
+                <div className="overflow-hidden rounded-2xl border border-border/70 bg-background/80 flex-1">
                   <RecentActivityCard activities={activities} />
                 </div>
-                {(!activities || activities.length === 0) && (
-                  <p className="mt-3 text-sm text-muted-foreground">
-                    Hiện chưa có hoạt động nào gần đây.
-                  </p>
-                )}
               </CardContent>
             </Card>
 
-            {/* TODAY / WEEK SUMMARY */}
-            <Card className="rounded-3xl border border-border/80 bg-card/90 backdrop-blur-sm shadow-sm ring-1 ring-primary/10 animate-slide-in">
+            {/* THỐNG KÊ NHANH */}
+            <Card className="rounded-3xl border border-border/80 bg-card/95 backdrop-blur-sm shadow-sm">
               <CardHeader className="pb-3">
-                <CardTitle className="text-base md:text-lg font-semibold flex items-center gap-2">
+                <CardTitle className="text-lg md:text-xl font-semibold flex items-center gap-2">
                   📅 Thống kê nhanh
                 </CardTitle>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Tình hình hệ thống trong hôm nay và 7 ngày gần đây.
+                <p className="text-sm text-muted-foreground mt-1">
+                  Tình hình trong hôm nay và 7 ngày gần đây.
                 </p>
               </CardHeader>
-              <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center">
-                    <Clock className="h-4 w-4 text-primary" />
+
+              <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-5 text-sm">
+                <div className="flex items-center gap-4">
+                  <div className="w-11 h-11 rounded-2xl bg-primary/10 flex items-center justify-center">
+                    <Clock className="h-5 w-5 text-primary" />
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-sm text-muted-foreground">
                       Lượt làm bài hôm nay
                     </p>
-                    <p className="text-base font-semibold">
+                    <p className="text-lg md:text-xl font-semibold">
                       {quickStats.examsToday ?? 0}
                     </p>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-emerald-50 flex items-center justify-center">
-                    <UserCheck className="h-4 w-4 text-emerald-600" />
+                <div className="flex items-center gap-4">
+                  <div className="w-11 h-11 rounded-2xl bg-emerald-50 flex items-center justify-center">
+                    <UserCheck className="h-5 w-5 text-emerald-600" />
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-sm text-muted-foreground">
                       Học viên đang hoạt động
                     </p>
-                    <p className="text-base font-semibold">
+                    <p className="text-lg md:text-xl font-semibold">
                       {quickStats.onlineUsers ?? 0}
                     </p>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-sky-50 flex items-center justify-center">
-                    <Users className="h-4 w-4 text-sky-600" />
+                <div className="flex items-center gap-4">
+                  <div className="w-11 h-11 rounded-2xl bg-sky-50 flex items-center justify-center">
+                    <Users className="h-5 w-5 text-sky-600" />
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-sm text-muted-foreground">
                       Học viên mới (7 ngày)
                     </p>
-                    <p className="text-base font-semibold">
+                    <p className="text-lg md:text-xl font-semibold">
                       {quickStats.newUsersThisWeek ?? 0}
                     </p>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-amber-50 flex items-center justify-center">
-                    <Layers className="h-4 w-4 text-amber-600" />
+                <div className="flex items-center gap-4">
+                  <div className="w-11 h-11 rounded-2xl bg-amber-50 flex items-center justify-center">
+                    <Layers className="h-5 w-5 text-amber-600" />
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-sm text-muted-foreground">
                       Đề thi mới (7 ngày)
                     </p>
-                    <p className="text-base font-semibold">
+                    <p className="text-lg md:text-xl font-semibold">
                       {quickStats.newTestsThisWeek ?? 0}
                     </p>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3 sm:col-span-2">
-                  <div className="w-9 h-9 rounded-xl bg-rose-50 flex items-center justify-center">
-                    <Inbox className="h-4 w-4 text-rose-600" />
+                <div className="flex items-center gap-4 sm:col-span-2">
+                  <div className="w-11 h-11 rounded-2xl bg-rose-50 flex items-center justify-center">
+                    <Inbox className="h-5 w-5 text-rose-600" />
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-sm text-muted-foreground">
                       Phản hồi chờ xử lý
                     </p>
-                    <p className="text-base font-semibold">
+                    <p className="text-lg md:text-xl font-semibold">
                       {quickStats.pendingFeedbacks ?? 0}
                     </p>
                   </div>
                 </div>
+                
               </CardContent>
             </Card>
           </div>

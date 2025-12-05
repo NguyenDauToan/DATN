@@ -1,12 +1,32 @@
 // src/pages/ExamReviewPage.tsx
 import { useLocation, useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { CheckCircle2, XCircle, ArrowLeft, ArrowRight } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import {
+  Trophy,
+  TrendingUp,
+  Calendar,
+  Award,
+  ArrowLeft,
+  CheckCircle,
+  XCircle,
+  Headphones,
+  Mic,
+  BookOpen,
+  PenTool,
+} from "lucide-react";
 
-type QuestionType = "multiple_choice" | "true_false" | "fill_blank" | "reading_cloze";
+type QuestionType =
+  | "multiple_choice"
+  | "true_false"
+  | "fill_blank"
+  | "reading_cloze"
+  | "writing_sentence_order"
+  | "writing_paragraph"
+  | "speaking";
 
 interface SubQuestion {
   label?: string;
@@ -19,8 +39,10 @@ interface Question {
   content: string;
   type: QuestionType;
   options?: string[];
-  answer: string; // với reading_cloze có thể là "" (không dùng)
+  answer: string;
   subQuestions?: SubQuestion[];
+  explanation?: string;
+  skill?: string;
 }
 
 interface ExamData {
@@ -30,12 +52,40 @@ interface ExamData {
   questions: Question[];
 }
 
+type AnswerValue = string | string[] | null;
+
 interface ReviewLocationState {
   exam: ExamData;
-  // với reading_cloze: answers[i] là string[] (mảng đáp án của từng blank)
-  answers: (string | string[] | null)[];
-  score: number;     // số câu đúng (hoặc bạn có thể truyền correctCount)
+  answers: AnswerValue[];
+  score10: number; // thang 10
+  correctCount: number; // số item đúng (câu + subQuestion)
   timeUsed: number;
+}
+
+// ===== Helpers =====
+const normalizeText = (text: string) =>
+  text
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[.,!?;:]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const normalizeSentence = (text: string) => normalizeText(text);
+
+const getWritingUserSentence = (
+  ans: string | string[] | null | undefined
+): string => {
+  if (Array.isArray(ans)) return ans.join(" ");
+  if (typeof ans === "string") return ans;
+  return "";
+};
+
+type SkillKey = "listening" | "reading" | "writing" | "speaking";
+
+interface SkillStats {
+  correct: number;
+  total: number;
 }
 
 const ExamReviewPage = () => {
@@ -58,447 +108,749 @@ const ExamReviewPage = () => {
     );
   }
 
-  const { exam, answers, score, timeUsed } = state;
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const { exam, answers, score10, correctCount, timeUsed } = state;
 
-  const question = exam.questions[currentIndex];
-  const totalQuestions = exam.questions.length;
-  const progress = ((currentIndex + 1) / totalQuestions) * 100;
+  // ===== Tổng số item chấm đúng/sai (giống autoMax bên ExamPage) =====
+  const totalItems = useMemo(
+    () =>
+      exam.questions.reduce((sum, q) => {
+        if (q.type === "reading_cloze" && q.subQuestions?.length) {
+          return sum + q.subQuestions.length;
+        }
+        if (q.type === "writing_sentence_order") return sum + 1;
 
-  // ==== TÍNH ĐÚNG/SAI CHO CÂU HIỆN TẠI (KỂ CẢ reading_cloze) ====
-  let rawUserAnswer: string | null = null;
-  let userAnswerNorm = "";
-  let correctAnswerNorm = "";
-  let isAnswered = false;
-  let isCorrect = false;
+        // Không tính speaking + writing_paragraph vào "câu đúng/sai"
+        if (q.type === "speaking" || q.type === "writing_paragraph") {
+          return sum;
+        }
 
-  if (question.type === "reading_cloze" && question.subQuestions?.length) {
-    const subAns = Array.isArray(answers[currentIndex])
-      ? (answers[currentIndex] as string[])
-      : [];
+        // multiple_choice, true_false, fill_blank,...
+        return sum + 1;
+      }, 0),
+    [exam.questions]
+  );
 
-    isAnswered = subAns.some((a) => a && a.trim() !== "");
+  const totalPoints = totalItems;
+  const percentage = totalPoints > 0 ? (correctCount / totalPoints) * 100 : 0;
+  const passed = percentage >= 50; // hoặc score10 >= 5
 
-    isCorrect =
-      isAnswered &&
-      question.subQuestions.every((sub, i) => {
-        const user = (subAns[i] || "").trim().toLowerCase();
-        const correct =
-          (sub.options?.[sub.correctIndex] || "").trim().toLowerCase();
-        return user === correct;
-      });
-  } else {
-    rawUserAnswer = (answers[currentIndex] as string | null) ?? null;
-    userAnswerNorm = rawUserAnswer?.trim().toLowerCase() || "";
-    correctAnswerNorm = String(question.answer).trim().toLowerCase();
-    isAnswered = !!userAnswerNorm;
-    isCorrect = isAnswered && userAnswerNorm === correctAnswerNorm;
-  }
-
-  const percentage = (score / totalQuestions) * 100;
   const usedMinutes = Math.floor(timeUsed / 60);
   const usedSeconds = timeUsed % 60;
 
-  const handlePrevious = () =>
-    setCurrentIndex((prev) => Math.max(prev - 1, 0));
+  // ===== Điểm theo kỹ năng =====
+  const skillStats = useMemo(() => {
+    const stats: Record<SkillKey, SkillStats> = {
+      listening: { correct: 0, total: 0 },
+      reading: { correct: 0, total: 0 },
+      writing: { correct: 0, total: 0 },
+      speaking: { correct: 0, total: 0 },
+    };
 
-  const handleNext = () =>
-    setCurrentIndex((prev) => Math.min(prev + 1, totalQuestions - 1));
+    const getSkill = (q: Question): SkillKey | null => {
+      const s = q.skill?.toLowerCase();
+      if (s === "listening") return "listening";
+      if (s === "reading") return "reading";
+      if (s === "writing") return "writing";
+      if (s === "speaking") return "speaking";
 
+      if (q.type === "reading_cloze") return "reading";
+      if (q.type === "writing_sentence_order" || q.type === "fill_blank")
+        return "writing";
+
+      return null;
+    };
+
+    exam.questions.forEach((q, idx) => {
+      const skillKey = getSkill(q);
+      const ans = answers[idx];
+
+      if (!skillKey) return;
+
+      if (q.type === "reading_cloze" && q.subQuestions?.length) {
+        const subAns = Array.isArray(ans) ? (ans as string[]) : [];
+        q.subQuestions.forEach((sub, subIdx) => {
+          const user = (subAns[subIdx] || "").trim().toLowerCase();
+          const correct =
+            (sub.options?.[sub.correctIndex] || "").trim().toLowerCase();
+
+          stats[skillKey].total += 1;
+          if (user && user === correct) {
+            stats[skillKey].correct += 1;
+          }
+        });
+      } else if (q.type === "writing_sentence_order") {
+        const userSentence = getWritingUserSentence(ans);
+        const correctSentence = String(q.answer || "");
+        const userNorm = normalizeSentence(userSentence);
+        const correctNorm = normalizeSentence(correctSentence);
+
+        stats[skillKey].total += 1;
+        if (userNorm && userNorm === correctNorm) {
+          stats[skillKey].correct += 1;
+        }
+      } else if (q.type === "fill_blank") {
+        const userNorm = normalizeText((ans ?? "").toString());
+        const correctNorm = normalizeText(String(q.answer ?? ""));
+
+        stats[skillKey].total += 1;
+        if (userNorm && userNorm === correctNorm) {
+          stats[skillKey].correct += 1;
+        }
+      }
+    });
+
+    return stats;
+  }, [exam.questions, answers]);
+
+  // ===== Trắc nghiệm (để vẽ Performance Insights) =====
+  const mcStats = useMemo(() => {
+    let total = 0;
+    let correct = 0;
+
+    exam.questions.forEach((q, idx) => {
+      const ans = answers[idx];
+
+      if (
+        q.type === "multiple_choice" ||
+        q.type === "true_false" ||
+        q.type === "reading_cloze"
+      ) {
+        if (q.type === "reading_cloze" && q.subQuestions?.length) {
+          const subAns = Array.isArray(ans) ? (ans as string[]) : [];
+          q.subQuestions.forEach((sub, subIdx) => {
+            const user = (subAns[subIdx] || "").trim().toLowerCase();
+            const corr =
+              (sub.options?.[sub.correctIndex] || "").trim().toLowerCase();
+
+            total += 1;
+            if (user && user === corr) correct += 1;
+          });
+        } else {
+          total += 1;
+          const userNorm = normalizeText((ans ?? "").toString());
+          const correctNorm = normalizeText(String(q.answer ?? ""));
+          if (userNorm && userNorm === correctNorm) correct += 1;
+        }
+      }
+    });
+
+    return { total, correct };
+  }, [exam.questions, answers]);
+
+  // ===== Tự luận (fill_blank + writing_sentence_order) =====
+  const essayStats = useMemo(() => {
+    let total = 0;
+    let correct = 0;
+
+    exam.questions.forEach((q, idx) => {
+      const ans = answers[idx];
+
+      if (q.type === "fill_blank") {
+        total += 1;
+        const userNorm = normalizeText((ans ?? "").toString());
+        const correctNorm = normalizeText(String(q.answer ?? ""));
+        if (userNorm && userNorm === correctNorm) correct += 1;
+      }
+
+      if (q.type === "writing_sentence_order") {
+        total += 1;
+        const userSentence = getWritingUserSentence(ans);
+        const correctSentence = String(q.answer || "");
+        const userNorm = normalizeSentence(userSentence);
+        const correctNorm = normalizeSentence(correctSentence);
+        if (userNorm && userNorm === correctNorm) correct += 1;
+      }
+    });
+
+    return { total, correct };
+  }, [exam.questions, answers]);
+
+  // ============= RENDER =============
   return (
     <div className="min-h-screen bg-gradient-to-b from-sky-50 via-indigo-50/40 to-slate-50">
-      <div className="max-w-6xl mx-auto px-4 py-6 md:py-10 space-y-6">
-        {/* HEADER CHUNG */}
-        <div className="flex items-center justify-between gap-3">
+      <div className="container mx-auto px-4 py-8 max-w-5xl space-y-6">
+        {/* Nút back + thông tin chung */}
+        <div className="flex items-center justify-between mb-2">
           <Button
             variant="outline"
             size="icon"
             className="rounded-full border-slate-200 bg-white/80 hover:bg-slate-50 shadow-sm"
-            onClick={() => navigate("/exams")}
+            onClick={() => navigate("/dashboard")}
           >
             <ArrowLeft className="w-4 h-4 text-slate-700" />
           </Button>
-
-          <div className="flex flex-col items-end gap-1">
-            <span className="inline-flex items-center gap-2 text-sm text-slate-500">
-              Điểm:{" "}
-              <span className="font-semibold text-slate-900">
-                {score}/{totalQuestions} ({percentage.toFixed(0)}%)
-              </span>
-            </span>
-            <span className="text-xs text-slate-400">
-              Câu {currentIndex + 1}/{totalQuestions}
-            </span>
-            <span className="text-xs text-slate-400">
+          <div className="text-right text-xs text-slate-500">
+            <div>
               Thời gian làm bài: {usedMinutes} phút {usedSeconds} giây
-            </span>
+            </div>
+            <div>
+              Đúng {correctCount}/{totalPoints} • {percentage.toFixed(0)}%
+            </div>
           </div>
         </div>
 
-        {/* HAI CỘT: ĐỀ THI + ĐIỀU HƯỚNG */}
-        <div className="flex flex-col lg:flex-row gap-6">
-          {/* CỘT TRÁI */}
-          <div className="flex-1 space-y-6">
-            {/* Header bài thi */}
-            <Card className="shadow-md rounded-3xl bg-white/90 border border-slate-200">
-              <CardHeader className="p-5 border-b border-slate-100">
-                <div className="flex flex-col gap-2">
-                  <CardTitle className="text-xl md:text-2xl font-bold text-slate-900">
-                    {exam.title}
-                  </CardTitle>
-                  <div className="flex items-center gap-2 text-xs md:text-sm text-slate-500 flex-wrap">
-                    <span className="px-2.5 py-0.5 rounded-full bg-sky-50 text-sky-700 border border-sky-100">
-                      Xem lại bài thi
-                    </span>
-                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">
-                      {totalQuestions} câu hỏi
-                    </span>
-                    <span
-                      className={`px-2.5 py-0.5 rounded-full border text-xs ${
-                        percentage >= 50
-                          ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                          : "bg-rose-50 text-rose-700 border-rose-200"
-                      }`}
-                    >
-                      {percentage >= 50 ? "Đạt" : "Không đạt"}
-                    </span>
+        {/* Result Summary */}
+        <Card
+          className={`mb-2 ${
+            passed
+              ? "bg-gradient-to-r from-green-50 to-blue-50"
+              : "bg-gradient-to-r from-orange-50 to-red-50"
+          }`}
+        >
+          <CardHeader>
+            <div className="text-center">
+              <div
+                className={`inline-flex items-center justify-center w-20 h-20 rounded-full ${
+                  passed ? "bg-green-100" : "bg-orange-100"
+                } mb-4`}
+              >
+                {passed ? (
+                  <Trophy className="size-10 text-green-600" />
+                ) : (
+                  <Award className="size-10 text-orange-600" />
+                )}
+              </div>
+              <CardTitle
+                className={`mb-2 ${
+                  passed ? "text-green-600" : "text-orange-600"
+                }`}
+              >
+                {passed
+                  ? "Chúc mừng! Bạn đã hoàn thành bài kiểm tra"
+                  : "Hoàn thành bài kiểm tra"}
+              </CardTitle>
+              <p className="text-gray-600">{exam.title}</p>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="text-center mb-6">
+              <p className="text-5xl mb-2">{percentage.toFixed(0)}%</p>
+              <p className="text-gray-600 mb-4">
+                {score10.toFixed(1)}/10 điểm · {correctCount}/{totalPoints} câu
+                đúng
+              </p>
+              <Progress value={percentage} className="h-3 max-w-md mx-auto" />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-2xl mx-auto">
+              <div className="bg-white rounded-lg p-4 text-center">
+                <CheckCircle className="size-8 text-green-600 mx-auto mb-2" />
+                <p className="text-2xl text-green-600 mb-1">{correctCount}</p>
+                <p className="text-sm text-gray-600">Đúng</p>
+              </div>
+              <div className="bg-white rounded-lg p-4 text-center">
+                <XCircle className="size-8 text-red-600 mx-auto mb-2" />
+                <p className="text-2xl text-red-600 mb-1">
+                  {totalPoints - correctCount}
+                </p>
+                <p className="text-sm text-gray-600">Sai / Bỏ qua</p>
+              </div>
+              <div className="bg-white rounded-lg p-4 text-center">
+                <Calendar className="size-8 text-blue-600 mx-auto mb-2" />
+                <p className="text-2xl text-blue-600 mb-1">
+                  {exam.questions.length}
+                </p>
+                <p className="text-sm text-gray-600">Số câu hỏi</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Skill Breakdown */}
+        <Card className="mb-2">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <TrendingUp className="size-5 text-purple-600" />
+              Điểm theo kỹ năng
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Listening */}
+              {skillStats.listening.total > 0 && (
+                <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Headphones className="size-5 text-blue-600" />
+                    <span className="text-blue-600">Nghe (Listening)</span>
                   </div>
-                  <div className="mt-3">
-                    <Progress
-                      value={(score / totalQuestions) * 100}
-                      className="h-2 rounded-full bg-slate-100"
-                    />
-                  </div>
+                  <p className="text-3xl text-blue-600 mb-2">
+                    {skillStats.listening.correct}/
+                    {skillStats.listening.total}
+                  </p>
+                  <Progress
+                    value={
+                      (skillStats.listening.correct /
+                        skillStats.listening.total) *
+                      100
+                    }
+                    className="h-2"
+                  />
                 </div>
-              </CardHeader>
-            </Card>
+              )}
 
-            {/* Thẻ câu hỏi */}
-            <Card className="shadow-lg rounded-3xl bg-white/95 border border-slate-200">
-              <CardHeader className="pb-3 px-5 pt-5">
-                <div className="flex items-center justify-between gap-3">
-                  {/* Câu số */}
-                  <span className="inline-flex items-center rounded-full bg-sky-50 border border-sky-100 px-3 py-1 shadow-sm">
-                    <span className="text-[11px] uppercase tracking-wide text-sky-500 mr-1">
-                      Câu
-                    </span>
-                    <span className="text-sm font-semibold text-sky-700">
-                      {currentIndex + 1}
-                    </span>
-                  </span>
+              {/* Speaking – nếu sau này có mapping correct/total thì thống kê ở đây */}
+              {skillStats.speaking.total > 0 && (
+                <div className="p-4 bg-green-50 rounded-lg border border-green-200">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Mic className="size-5 text-green-600" />
+                    <span className="text-green-600">Nói (Speaking)</span>
+                  </div>
+                  <p className="text-3xl text-green-600 mb-2">
+                    {skillStats.speaking.correct}/
+                    {skillStats.speaking.total}
+                  </p>
+                  <Progress
+                    value={
+                      (skillStats.speaking.correct /
+                        skillStats.speaking.total) *
+                      100
+                    }
+                    className="h-2"
+                  />
+                </div>
+              )}
 
-                  {/* Nhãn kết quả câu này */}
-                  <span
-                    className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium border ${
-                      !isAnswered
-                        ? "bg-slate-50 text-slate-600 border-slate-200"
-                        : isCorrect
-                        ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                        : "bg-rose-50 text-rose-700 border-rose-200"
-                    }`}
+              {/* Reading */}
+              {skillStats.reading.total > 0 && (
+                <div className="p-4 bg-purple-50 rounded-lg border border-purple-200">
+                  <div className="flex items-center gap-2 mb-3">
+                    <BookOpen className="size-5 text-purple-600" />
+                    <span className="text-purple-600">Đọc (Reading)</span>
+                  </div>
+                  <p className="text-3xl text-purple-600 mb-2">
+                    {skillStats.reading.correct}/{skillStats.reading.total}
+                  </p>
+                  <Progress
+                    value={
+                      (skillStats.reading.correct /
+                        skillStats.reading.total) *
+                      100
+                    }
+                    className="h-2"
+                  />
+                </div>
+              )}
+
+              {/* Writing */}
+              {skillStats.writing.total > 0 && (
+                <div className="p-4 bg-orange-50 rounded-lg border border-orange-200">
+                  <div className="flex items-center gap-2 mb-3">
+                    <PenTool className="size-5 text-orange-600" />
+                    <span className="text-orange-600">Viết (Writing)</span>
+                  </div>
+                  <p className="text-3xl text-orange-600 mb-2">
+                    {skillStats.writing.correct}/{skillStats.writing.total}
+                  </p>
+                  <Progress
+                    value={
+                      (skillStats.writing.correct /
+                        skillStats.writing.total) *
+                      100
+                    }
+                    className="h-2"
+                  />
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Detailed Review */}
+        <Card className="mb-2">
+          <CardHeader>
+            <CardTitle>Chi tiết đáp án</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-6">
+              {exam.questions.map((q, index) => {
+                let studentAnswerDisplay = "";
+                let isCorrect = false;
+                let isAnswered = false;
+
+                const isSubjective =
+                  q.type === "writing_paragraph" || q.type === "speaking";
+
+                // Phân loại từng dạng câu hỏi
+                if (q.type === "writing_paragraph") {
+                  const raw = (answers[index] as string | null) ?? "";
+                  studentAnswerDisplay = raw;
+                  isAnswered = !!normalizeText(raw);
+                  isCorrect = false; // không dùng đúng/sai
+                } else if (q.type === "speaking") {
+                  const raw = (answers[index] as string | null) ?? "";
+                  studentAnswerDisplay = raw; // transcript lưu ở answers[index]
+                  isAnswered = !!normalizeText(raw);
+                  isCorrect = false;
+                } else if (
+                  q.type === "reading_cloze" &&
+                  q.subQuestions?.length
+                ) {
+                  const subAns = Array.isArray(answers[index])
+                    ? (answers[index] as string[])
+                    : [];
+                  isAnswered = subAns.some((a) => a && a.trim() !== "");
+                  isCorrect =
+                    isAnswered &&
+                    q.subQuestions.every((sub, i) => {
+                      const user = (subAns[i] || "").trim().toLowerCase();
+                      const corr =
+                        (sub.options?.[sub.correctIndex] || "")
+                          .trim()
+                          .toLowerCase();
+                      return user === corr;
+                    });
+                } else if (q.type === "writing_sentence_order") {
+                  const userSentence = getWritingUserSentence(answers[index]);
+                  const correctSentence = String(q.answer || "");
+                  const userNorm = normalizeSentence(userSentence);
+                  const correctNorm = normalizeSentence(correctSentence);
+                  studentAnswerDisplay = userSentence;
+                  isAnswered = !!userNorm;
+                  isCorrect = isAnswered && userNorm === correctNorm;
+                } else {
+                  const raw = (answers[index] as string | null) ?? "";
+                  const userNorm = normalizeText(raw);
+                  const correctNorm = normalizeText(String(q.answer ?? ""));
+                  studentAnswerDisplay = raw;
+                  isAnswered = !!userNorm;
+                  isCorrect = isAnswered && userNorm === correctNorm;
+                }
+
+                const cardColor = isSubjective
+                  ? isAnswered
+                    ? "border-blue-200 bg-blue-50"
+                    : "border-gray-200 bg-gray-50"
+                  : isCorrect
+                  ? "border-green-200 bg-green-50"
+                  : isAnswered
+                  ? "border-red-200 bg-red-50"
+                  : "border-gray-200 bg-gray-50";
+
+                return (
+                  <div
+                    key={q._id}
+                    className={`p-4 rounded-lg border-2 ${cardColor}`}
                   >
-                    {!isAnswered && "Chưa trả lời"}
-                    {isAnswered && isCorrect && (
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`inline-flex items-center justify-center w-8 h-8 rounded-full ${
+                            isSubjective
+                              ? isAnswered
+                                ? "bg-blue-600 text-white"
+                                : "bg-gray-400 text-white"
+                              : isCorrect
+                              ? "bg-green-600 text-white"
+                              : isAnswered
+                              ? "bg-red-600 text-white"
+                              : "bg-gray-400 text-white"
+                          }`}
+                        >
+                          {index + 1}
+                        </span>
+                      </div>
+                      {isSubjective ? (
+                        isAnswered ? (
+                          <Badge className="bg-blue-600">Đã nộp</Badge>
+                        ) : (
+                          <Badge variant="secondary">Bỏ qua</Badge>
+                        )
+                      ) : isCorrect ? (
+                        <Badge className="bg-green-600">Đúng</Badge>
+                      ) : isAnswered ? (
+                        <Badge variant="destructive">Sai</Badge>
+                      ) : (
+                        <Badge variant="secondary">Bỏ qua</Badge>
+                      )}
+                    </div>
+
+                    {/* Reading Cloze */}
+                    {q.type === "reading_cloze" && q.subQuestions?.length ? (
+                      <div className="space-y-4">
+                        <p className="text-gray-800 mb-3">{q.content}</p>
+                        {q.subQuestions.map((sub, subIdx) => {
+                          const subAns = Array.isArray(answers[index])
+                            ? (answers[index] as string[])
+                            : [];
+                          const user = (subAns[subIdx] || "").trim();
+                          const correctOpt =
+                            sub.options[sub.correctIndex] || "";
+                          const subCorrect =
+                            user &&
+                            user.trim().toLowerCase() ===
+                              correctOpt.trim().toLowerCase();
+
+                          return (
+                            <div
+                              key={subIdx}
+                              className={`p-3 rounded-md border ${
+                                subCorrect
+                                  ? "border-green-200 bg-green-50"
+                                  : user
+                                  ? "border-red-200 bg-red-50"
+                                  : "border-gray-200 bg-white"
+                              }`}
+                            >
+                              <div className="mb-2 flex items-center justify-between">
+                                <span className="text-sm font-medium text-gray-800">
+                                  {sub.label ||
+                                    `Câu ${index + 1}.${subIdx + 1}`}
+                                </span>
+                                <span className="text-xs text-gray-500">
+                                  {subCorrect
+                                    ? "Đúng"
+                                    : user
+                                    ? "Sai"
+                                    : "Bỏ qua"}
+                                </span>
+                              </div>
+                              <div className="space-y-2">
+                                {sub.options.map((opt, optIndex) => {
+                                  const isCorrectOpt =
+                                    opt.trim().toLowerCase() ===
+                                    correctOpt.trim().toLowerCase();
+                                  const isUserOpt =
+                                    opt.trim().toLowerCase() ===
+                                    user.trim().toLowerCase();
+
+                                  return (
+                                    <div
+                                      key={optIndex}
+                                      className={`p-2 rounded-lg border ${
+                                        isCorrectOpt
+                                          ? "border-green-600 bg-green-100"
+                                          : isUserOpt && !isCorrectOpt
+                                          ? "border-red-600 bg-red-100"
+                                          : "border-gray-200 bg-white"
+                                      }`}
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        {isCorrectOpt && (
+                                          <CheckCircle className="size-4 text-green-600" />
+                                        )}
+                                        {isUserOpt && !isCorrectOpt && (
+                                          <XCircle className="size-4 text-red-600" />
+                                        )}
+                                        <span
+                                          className={
+                                            isCorrectOpt
+                                              ? "text-green-700"
+                                              : ""
+                                          }
+                                        >
+                                          {opt}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
                       <>
-                        <CheckCircle2 className="w-3 h-3" /> Đúng
-                      </>
-                    )}
-                    {isAnswered && !isCorrect && (
-                      <>
-                        <XCircle className="w-3 h-3" /> Sai
-                      </>
-                    )}
-                  </span>
-                </div>
+                        <p className="text-gray-800 mb-3">{q.content}</p>
 
-                <CardTitle className="mt-3 text-lg md:text-xl font-semibold text-slate-900 leading-relaxed">
-                  {question.content}
-                </CardTitle>
-              </CardHeader>
-
-              <CardContent className="px-5 pb-5 pt-1 space-y-4">
-                {/* reading_cloze: nhiều câu con */}
-                {question.type === "reading_cloze" &&
-                  question.subQuestions &&
-                  question.subQuestions.length > 0 && (
-                    <div className="mt-4 space-y-5">
-                      {question.subQuestions.map((sub, subIdx) => {
-                        const subAnswers = Array.isArray(answers[currentIndex])
-                          ? (answers[currentIndex] as string[])
-                          : [];
-                        const selected =
-                          (subAnswers[subIdx] || "").trim().toLowerCase();
-                        const correctText =
-                          (sub.options?.[sub.correctIndex] || "")
-                            .trim()
-                            .toLowerCase();
-
-                        return (
-                          <div
-                            key={subIdx}
-                            className="border-t border-slate-100 pt-4"
-                          >
-                            <p className="text-sm font-semibold text-slate-800 mb-2">
-                              {sub.label ||
-                                `Question ${currentIndex + 1}.${subIdx + 1}`}
-                            </p>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                              {sub.options?.map((opt, optIdx) => {
-                                const optNorm = opt.trim().toLowerCase();
-                                const isCorrectOption =
-                                  optNorm === correctText;
-                                const isUserOption = optNorm === selected;
-
-                                let optionClasses =
-                                  "h-full w-full py-3 px-2 rounded-2xl text-xs md:text-sm transition-all duration-150 border flex items-center justify-center";
-
-                                if (isCorrectOption) {
-                                  optionClasses +=
-                                    " bg-emerald-500 text-white border-emerald-600 shadow-md";
-                                } else if (isUserOption && !isCorrectOption) {
-                                  optionClasses +=
-                                    " bg-rose-500 text-white border-rose-600 shadow-md";
-                                } else {
-                                  optionClasses +=
-                                    " bg-white border-slate-200 text-slate-800";
-                                }
+                        {/* Multiple choice + True/False */}
+                        {(q.type === "multiple_choice" ||
+                          q.type === "true_false") &&
+                          q.options && (
+                            <div className="space-y-2 mb-3">
+                              {q.options.map((option, optIndex) => {
+                                const isCorrectOpt =
+                                  normalizeText(option) ===
+                                  normalizeText(q.answer);
+                                const isUserOpt =
+                                  normalizeText(option) ===
+                                  normalizeText(studentAnswerDisplay);
 
                                 return (
-                                  <div key={optIdx} className={optionClasses}>
-                                    <span className="flex flex-row items-center justify-center gap-3">
+                                  <div
+                                    key={optIndex}
+                                    className={`p-3 rounded-lg border ${
+                                      isCorrectOpt
+                                        ? "border-green-600 bg-green-100"
+                                        : isUserOpt && !isCorrectOpt
+                                        ? "border-red-600 bg-red-100"
+                                        : "border-gray-200 bg-white"
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      {isCorrectOpt && (
+                                        <CheckCircle className="size-5 text-green-600" />
+                                      )}
+                                      {isUserOpt && !isCorrectOpt && (
+                                        <XCircle className="size-5 text-red-600" />
+                                      )}
                                       <span
-                                        className={`w-8 h-8 flex items-center justify-center rounded-full text-sm font-semibold ${
-                                          isCorrectOption || isUserOption
-                                            ? "bg-black/10"
-                                            : "bg-slate-100 text-slate-700"
-                                        }`}
+                                        className={
+                                          isCorrectOpt
+                                            ? "text-green-700"
+                                            : ""
+                                        }
                                       >
-                                        {String.fromCharCode(65 + optIdx)}
+                                        {option}
                                       </span>
-                                      <span className="text-sm md:text-base">
-                                        {opt}
-                                      </span>
-                                    </span>
+                                    </div>
                                   </div>
                                 );
                               })}
                             </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                          )}
 
-                {/* Multiple Choice */}
-                {question.type === "multiple_choice" &&
-                  question.options &&
-                  question.options.length > 0 && (
-                    <div className="grid gap-3">
-                      {question.options.map((opt, idx) => {
-                        const optNorm = opt.trim().toLowerCase();
-                        const isCorrectOption = optNorm === correctAnswerNorm;
-                        const isUserOption = optNorm === userAnswerNorm;
-
-                        let optionClasses =
-                          "justify-start text-left py-3.5 px-4 rounded-2xl text-sm md:text-base border transition-all duration-150 flex items-center gap-3";
-
-                        if (isCorrectOption) {
-                          optionClasses +=
-                            " bg-emerald-500 text-white border-emerald-600 shadow-md";
-                        } else if (isUserOption && !isCorrectOption) {
-                          optionClasses +=
-                            " bg-rose-500 text-white border-rose-600 shadow-md";
-                        } else {
-                          optionClasses +=
-                            " bg-white border-slate-200 text-slate-800";
-                        }
-
-                        return (
-                          <div key={idx} className={optionClasses}>
-                            <span
-                              className={`w-8 h-8 flex items-center justify-center rounded-full text-sm font-semibold ${
-                                isCorrectOption || isUserOption
-                                  ? "bg-black/10"
-                                  : "bg-slate-100 text-slate-700"
+                        {/* Fill blank + writing_sentence_order */}
+                        {(q.type === "fill_blank" ||
+                          q.type === "writing_sentence_order") && (
+                          <div className="space-y-2">
+                            <div
+                              className={`p-3 rounded-lg border ${
+                                !isAnswered
+                                  ? "border-gray-200 bg-white"
+                                  : isCorrect
+                                  ? "border-green-600 bg-green-100"
+                                  : "border-red-600 bg-red-100"
                               }`}
                             >
-                              {String.fromCharCode(65 + idx)}
-                            </span>
-                            <span className="flex-1">{opt}</span>
-                            <span className="ml-2">
-                              {isCorrectOption && (
-                                <CheckCircle2 className="w-5 h-5 opacity-90" />
-                              )}
-                              {isUserOption && !isCorrectOption && (
-                                <XCircle className="w-5 h-5 opacity-90" />
-                              )}
-                            </span>
+                              <p className="text-sm text-gray-600 mb-1">
+                                Câu trả lời của bạn:
+                              </p>
+                              <p
+                                className={
+                                  isCorrect
+                                    ? "text-green-700"
+                                    : "text-red-700"
+                                }
+                              >
+                                {isAnswered
+                                  ? studentAnswerDisplay
+                                  : "(Chưa trả lời)"}
+                              </p>
+                            </div>
+                            {!isCorrect && (
+                              <div className="p-3 rounded-lg border border-green-600 bg-green-100">
+                                <p className="text-sm text-gray-600 mb-1">
+                                  Đáp án đúng:
+                                </p>
+                                <p className="text-green-700">{q.answer}</p>
+                              </div>
+                            )}
                           </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                        )}
 
-                {/* True / False */}
-                {question.type === "true_false" && (
-                  <div className="grid grid-cols-2 gap-3">
-                    {["true", "false"].map((val) => {
-                      const label = val === "true" ? "Đúng" : "Sai";
-                      const isCorrectOption = correctAnswerNorm === val;
-                      const isUserOption = userAnswerNorm === val;
+                        {/* Writing paragraph */}
+                        {q.type === "writing_paragraph" && (
+                          <div className="space-y-2">
+                            <div className="p-3 rounded-lg border border-blue-200 bg-white">
+                              <p className="text-sm text-gray-600 mb-1">
+                                Đoạn văn của bạn:
+                              </p>
+                              <p className="text-gray-800 whitespace-pre-wrap">
+                                {isAnswered
+                                  ? studentAnswerDisplay
+                                  : "(Chưa trả lời)"}
+                              </p>
+                            </div>
+                            <p className="text-[11px] text-gray-500">
+                              Câu Writing này được chấm điểm bằng AI/giáo viên,
+                              không có đáp án đúng/sai cố định.
+                            </p>
+                          </div>
+                        )}
 
-                      let btnClasses =
-                        "py-3.5 rounded-2xl text-sm md:text-base border transition-all duration-150 flex items-center justify-center gap-2";
+                        {/* Speaking */}
+                        {q.type === "speaking" && (
+                          <div className="space-y-2">
+                            <div className="p-3 rounded-lg border border-blue-200 bg-white">
+                              <p className="text-sm text-gray-600 mb-1">
+                                Transcript / nội dung AI nhận được:
+                              </p>
+                              <p className="text-gray-800 whitespace-pre-wrap">
+                                {isAnswered
+                                  ? studentAnswerDisplay
+                                  : "(Chưa nộp audio hoặc chưa được chấm)"}
+                              </p>
+                            </div>
+                            <p className="text-[11px] text-gray-500">
+                              Điểm Speaking được chấm riêng dựa trên bài nói
+                              của bạn.
+                            </p>
+                          </div>
+                        )}
+                      </>
+                    )}
 
-                      if (isCorrectOption) {
-                        btnClasses +=
-                          " bg-emerald-500 text-white border-emerald-600 shadow-md";
-                      } else if (isUserOption && !isCorrectOption) {
-                        btnClasses +=
-                          " bg-rose-500 text-white border-rose-600 shadow-md";
-                      } else {
-                        btnClasses +=
-                          " bg-white border-slate-200 text-slate-800";
-                      }
-
-                      return (
-                        <div key={val} className={btnClasses}>
-                          {val === "true" ? (
-                            <CheckCircle2 className="w-4 h-4" />
-                          ) : (
-                            <XCircle className="w-4 h-4" />
-                          )}
-                          <span>{label}</span>
+                    {/* Giải thích nếu có */}
+                    {q.explanation && (
+                      <div className="mt-3 p-3 rounded-lg border bg-amber-50 border-amber-200 text-amber-900 text-sm">
+                        <div className="font-semibold mb-1">Giải thích:</div>
+                        <div className="whitespace-pre-wrap">
+                          {q.explanation}
                         </div>
-                      );
-                    })}
+                      </div>
+                    )}
                   </div>
-                )}
-
-                {/* Fill Blank */}
-                {question.type === "fill_blank" && (
-                  <div className="space-y-3 text-sm md:text-base">
-                    <div
-                      className={`px-3 py-2 rounded-2xl border ${
-                        !isAnswered
-                          ? "bg-slate-50 border-slate-200 text-slate-500"
-                          : isCorrect
-                          ? "bg-emerald-50 border-emerald-200 text-emerald-800"
-                          : "bg-rose-50 border-rose-200 text-rose-800"
-                      }`}
-                    >
-                      <span className="font-semibold">Câu trả lời của bạn: </span>
-                      <span>
-                        {isAnswered ? rawUserAnswer : "(Chưa trả lời)"}
-                      </span>
-                    </div>
-                    <div className="px-3 py-2 rounded-2xl border bg-sky-50 border-sky-200 text-sky-900">
-                      <span className="font-semibold">Đáp án đúng: </span>
-                      <span>{question.answer}</span>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Nút chuyển câu */}
-            <div className="flex justify-between gap-3 pt-2">
-              <Button
-                type="button"
-                onClick={handlePrevious}
-                disabled={currentIndex === 0}
-                variant="outline"
-                className="flex items-center gap-2 rounded-2xl py-3 px-4 border-slate-300 bg-white hover:bg-slate-50 text-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <ArrowLeft className="w-4 h-4" /> Câu trước
-              </Button>
-              <Button
-                type="button"
-                onClick={handleNext}
-                disabled={currentIndex === totalQuestions - 1}
-                className="flex items-center gap-2 rounded-2xl py-3 px-5 bg-gradient-to-r from-sky-500 to-indigo-500 hover:from-sky-600 hover:to-indigo-600 text-white shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Câu tiếp <ArrowRight className="w-4 h-4" />
-              </Button>
+                );
+              })}
             </div>
-          </div>
+          </CardContent>
+        </Card>
 
-          {/* CỘT PHẢI: ĐIỀU HƯỚNG CÂU HỎI */}
-          <div className="lg:w-64 xl:w-72 w-full lg:sticky lg:top-24 h-fit">
-            <Card className="bg-white/90 border border-slate-200 shadow-md rounded-2xl p-4">
-              <p className="text-xs font-semibold mb-3 text-slate-600 text-center uppercase tracking-wide">
-                Điều hướng câu hỏi
-              </p>
-              <div className="grid grid-cols-8 sm:grid-cols-10 lg:grid-cols-5 gap-2 justify-items-center">
-                {exam.questions.map((q, idx) => {
-                  const ans = answers[idx];
-
-                  let answered = false;
-                  let correct = false;
-
-                  if (q.type === "reading_cloze" && q.subQuestions?.length) {
-                    const subAns = Array.isArray(ans) ? (ans as string[]) : [];
-                    answered = subAns.some(
-                      (a) => a && a.trim().toLowerCase() !== ""
-                    );
-                    correct =
-                      answered &&
-                      q.subQuestions.every((sub, i) => {
-                        const user = (subAns[i] || "")
-                          .trim()
-                          .toLowerCase();
-                        const corr =
-                          (sub.options?.[sub.correctIndex] || "")
-                            .trim()
-                            .toLowerCase();
-                        return user === corr;
-                      });
-                  } else {
-                    const ansNorm =
-                      (typeof ans === "string" ? ans : "")
-                        .trim()
-                        .toLowerCase() || "";
-                    const correctNorm = String(q.answer)
-                      .trim()
-                      .toLowerCase();
-                    answered = !!ansNorm;
-                    correct = answered && ansNorm === correctNorm;
+        {/* Performance Insights */}
+        <Card className="mb-4">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <TrendingUp className="size-5 text-purple-600" />
+              Phân tích kết quả
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {/* Trắc nghiệm */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm text-gray-600">Trắc nghiệm</span>
+                  <span className="text-sm">
+                    {mcStats.correct}/{mcStats.total}
+                  </span>
+                </div>
+                <Progress
+                  value={
+                    mcStats.total > 0
+                      ? (mcStats.correct / mcStats.total) * 100
+                      : 0
                   }
-
-                  const isCurrent = idx === currentIndex;
-
-                  let baseClasses =
-                    "relative w-9 h-9 rounded-xl text-xs font-semibold transition-all duration-150 flex items-center justify-center";
-                  let stateClasses = "";
-
-                  if (isCurrent) {
-                    stateClasses =
-                      "bg-gradient-to-r from-sky-500 to-indigo-500 text-white shadow";
-                  } else if (!answered) {
-                    stateClasses =
-                      "bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100";
-                  } else if (correct) {
-                    stateClasses =
-                      "bg-emerald-500 text-white border border-emerald-600 hover:bg-emerald-600 shadow";
-                  } else {
-                    stateClasses =
-                      "bg-rose-500 text-white border border-rose-600 hover:bg-rose-600 shadow";
-                  }
-
-                  return (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => setCurrentIndex(idx)}
-                      className={`${baseClasses} ${stateClasses}`}
-                    >
-                      <span>{idx + 1}</span>
-                    </button>
-                  );
-                })}
+                  className="h-2"
+                />
               </div>
-            </Card>
-          </div>
+
+              {/* Tự luận (fill_blank + writing_sentence_order) */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm text-gray-600">Tự luận</span>
+                  <span className="text-sm">
+                    {essayStats.correct}/{essayStats.total}
+                  </span>
+                </div>
+                <Progress
+                  value={
+                    essayStats.total > 0
+                      ? (essayStats.correct / essayStats.total) * 100
+                      : 0
+                  }
+                  className="h-2"
+                />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="flex justify-center">
+          <Button onClick={() => navigate("/dashboard")} size="lg">
+            <ArrowLeft className="size-4 mr-2" />
+            Quay về
+          </Button>
         </div>
       </div>
     </div>

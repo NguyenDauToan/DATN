@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import axios from "axios";
+import { questionAPI } from "@/api/Api";
+
 import {
   Card,
   CardContent,
@@ -54,12 +55,13 @@ const AdminQuestions = () => {
   const fetchQuestions = async () => {
     try {
       setLoading(true);
-      const res = await axios.get("http://localhost:5000/api/questions?all=true", {
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-      });
-
+      const res = await questionAPI.getAll({ all: true });
+  
       if (res.data && Array.isArray(res.data.questions)) {
         setQuestions(res.data.questions);
+      } else if (Array.isArray(res.data)) {
+        // phòng trường hợp backend trả mảng thẳng
+        setQuestions(res.data);
       } else {
         setQuestions([]);
       }
@@ -70,41 +72,55 @@ const AdminQuestions = () => {
       setLoading(false);
     }
   };
-
+  
   const handleDelete = async (id: string) => {
     if (!confirm("Bạn có chắc muốn xóa câu hỏi này?")) return;
     try {
-      await axios.delete(`http://localhost:5000/api/questions/${id}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-      });
+      await questionAPI.remove(id);
       setQuestions((prev) => prev.filter((q) => q._id !== id));
       setSelectedIds((prev) => prev.filter((sid) => sid !== id));
       toast.success("Đã xóa câu hỏi");
-    } catch (err) {
-      console.error(err);
-      toast.error("Xóa thất bại");
+    } catch (err: any) {
+      console.error("Lỗi xóa câu hỏi:", err);
+      const msg =
+        err?.response?.data?.message ||
+        "Xóa thất bại (có thể câu hỏi đang được dùng trong đề thi)";
+      toast.error(msg);
     }
   };
-
+  
   const handleDeleteSelected = async () => {
     if (!selectedIds.length) return toast.error("Chưa chọn câu hỏi nào");
     if (!confirm(`Bạn có chắc muốn xóa ${selectedIds.length} câu hỏi?`)) return;
-    try {
-      await Promise.all(
-        selectedIds.map((id) =>
-          axios.delete(`http://localhost:5000/api/questions/${id}`, {
-            headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-          })
-        )
-      );
+  
+    let successCount = 0;
+    let errorCount = 0;
+  
+    for (const id of selectedIds) {
+      try {
+        await questionAPI.remove(id);
+        successCount++;
+      } catch (err: any) {
+        console.error(`Lỗi xóa câu hỏi ${id}:`, err);
+        errorCount++;
+        const msg =
+          err?.response?.data?.message ||
+          "Không thể xóa câu hỏi (có thể đang được dùng trong đề thi)";
+        toast.error(msg);
+      }
+    }
+  
+    if (successCount > 0) {
       setQuestions((prev) => prev.filter((q) => !selectedIds.includes(q._id)));
       setSelectedIds([]);
-      toast.success("Đã xóa các câu hỏi đã chọn");
-    } catch (err) {
-      console.error(err);
-      toast.error("Xóa hàng loạt thất bại");
+      toast.success(`Đã xóa ${successCount} câu hỏi`);
+    }
+  
+    if (errorCount > 0) {
+      toast.error(`${errorCount} câu hỏi không thể xóa (đã được dùng trong đề thi)`);
     }
   };
+  
 
   const filteredQuestions = questions.filter((q) => {
     const matchesSearch = q.content

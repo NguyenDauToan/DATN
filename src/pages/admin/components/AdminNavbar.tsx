@@ -21,10 +21,10 @@ import {
   LayoutDashboard,
   MessageCircle,
 } from "lucide-react";
-import { useAuth } from "@/data/AuthContext.jsx";
+import { useAuth } from "@/data/AuthContext.js";
 import { io, Socket } from "socket.io-client";
 import "../../../styles/Header.css";
-
+import { useNavigate } from "react-router-dom";
 type AdminNotification = {
   id: string;
   type: "feedback" | "exam" | "system";
@@ -37,6 +37,7 @@ type AdminNotification = {
 
 export function AdminNavbar() {
   const { logout, user } = useAuth();
+  const navigate = useNavigate();            // 👈 THÊM
 
   const initial =
     typeof user?.name === "string" && user.name.trim().length
@@ -53,14 +54,14 @@ export function AdminNavbar() {
         n.id === noti.id ? { ...n, read: true } : n
       )
     );
-  
+
     if (noti.type === "feedback") {
       window.location.href = "/admin/feedback";
     } else {
       window.location.href = "/admin";
     }
   };
-  
+
 
   // Kết nối socket và lắng nghe thông báo
   useEffect(() => {
@@ -68,9 +69,9 @@ export function AdminNavbar() {
     const s = io("http://localhost:5000", {
       query: { token },
     });
-  
+
     setSocket(s);
-  
+
     s.on("admin_new_message", (fb: any) => {
       const noti: AdminNotification = {
         id: fb._id,
@@ -81,10 +82,10 @@ export function AdminNavbar() {
         read: false,
         meta: fb,
       };
-  
+
       setNotifications((prev) => [noti, ...prev].slice(0, 50));
     });
-  
+
     s.on("admin_exam_finished", (data: any) => {
       const noti: AdminNotification = {
         id:
@@ -92,24 +93,23 @@ export function AdminNavbar() {
           `${data.userId}-${data.examId}-${data.finishedAt || Date.now()}`,
         type: "exam",
         title: "Học viên hoàn thành bài thi",
-        message: `${data.userName || "Học viên"} • Đề: ${
-          data.examTitle || data.examId || "Không rõ đề"
-        } • Điểm: ${data.score}/${data.maxScore ?? 10}`,
+        message: `${data.userName || "Học viên"} • Đề: ${data.examTitle || data.examId || "Không rõ đề"
+          } • Điểm: ${data.score}/${data.maxScore ?? 10}`,
         createdAt: data.finishedAt || new Date().toISOString(),
         read: false,
         meta: data,
       };
-  
+
       setNotifications((prev) => [noti, ...prev].slice(0, 50));
     });
-  
+
     return () => {
       s.off("admin_new_message");
       s.off("admin_exam_finished");
       s.disconnect();
     };
   }, []);
-  
+
   // Load thông báo đã lưu từ localStorage khi mở trang
   useEffect(() => {
     try {
@@ -122,7 +122,7 @@ export function AdminNavbar() {
       console.error("Không đọc được admin_notifications từ localStorage", e);
     }
   }, []);
-  
+
   useEffect(() => {
     try {
       localStorage.setItem("admin_notifications", JSON.stringify(notifications));
@@ -130,7 +130,7 @@ export function AdminNavbar() {
       console.error("Không lưu được admin_notifications vào localStorage", e);
     }
   }, [notifications]);
-  
+
   // Cập nhật số chưa đọc
   useEffect(() => {
     setUnread(notifications.filter((n) => !n.read).length);
@@ -164,13 +164,13 @@ export function AdminNavbar() {
         m-0
         transition-[background-color,box-shadow,transform]
         duration-300
-      "
+      " 
     >
       <span
         aria-hidden
         className="pointer-events-none absolute left-0 right-0 bottom-0 h-0.5 bg-gradient-to-r from-indigo-300/60 via-sky-300/60 to-blue-300/60"
       />
-      <div className="flex h-full items-center justify-between gap-4 px-4 md:px-6">
+      <div className="flex h-full w-full max-w-7xl mx-auto items-center justify-between gap-4 px-4 md:px-6">
         {/* Left: Sidebar trigger + Search */}
         <div className="flex items-center gap-3 md:gap-4">
           <SidebarTrigger className="h-9 w-9 rounded-lg bg-white/80 hover:bg-indigo-100/80 text-indigo-700 transition-all shadow-sm hover:shadow-md hover:-translate-y-[1px]" />
@@ -346,7 +346,10 @@ export function AdminNavbar() {
                 </DropdownMenuItem>
               )}
 
-              <DropdownMenuItem className="gap-2 text-gray-700 hover:bg-indigo-50 cursor-pointer transition-colors">
+              <DropdownMenuItem
+                className="gap-2 text-gray-700 hover:bg-indigo-50 cursor-pointer transition-colors"
+                onClick={() => navigate("/admin/profile")}   // 👈 SỬA Ở ĐÂY
+              >
                 <UserIcon className="h-4 w-4 text-indigo-600" />
                 Hồ sơ
               </DropdownMenuItem>

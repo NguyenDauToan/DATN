@@ -9,11 +9,20 @@ const api = axios.create({
 // Interceptor thêm token tự động
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem("token");
-  if (token && config.headers) {
-    config.headers.Authorization = `Bearer ${token}`;
+
+  if (token) {
+    // đảm bảo luôn có headers (cast any để TS không kêu)
+    if (!config.headers) {
+      config.headers = {} as any;
+    }
+
+    (config.headers as any).Authorization = `Bearer ${token}`;
   }
+
   return config;
 });
+
+
 
 // Interceptor xử lý 401
 api.interceptors.response.use(
@@ -31,12 +40,19 @@ api.interceptors.response.use(
 );
 
 // ----------------- Types -----------------
+// ----------------- Types -----------------
 export interface RegisterData {
   name: string;
   email: string;
   password: string;
   role?: "student" | "teacher" | "admin";
+
+  // 👇 thêm 3 field cho học sinh
+  grade?: string;        // khối / lớp (ví dụ "6", "7", ...)
+  schoolId?: string;     // _id của School
+  classroomId?: string;  // _id của Classroom
 }
+
 
 export interface LoginData {
   email: string;
@@ -51,8 +67,14 @@ export interface LoginResponse {
     email: string;
     role: "student" | "teacher" | "admin";
     isActive?: boolean;
+
+    // 👇 thêm nếu User model có các field này
+    grade?: string;
+    school?: string;      // hoặc { _id: string; name: string } nếu bạn populate
+    classroom?: string;   // tương tự
   };
 }
+
 
 export interface QuestionData {
   content: string;
@@ -82,20 +104,32 @@ export interface ResultData {
   answers: AnswerItem[];
   score: number;
 }
+export type AuthUser = LoginResponse["user"];
 
-// ----------------- AUTH -----------------
+export type UpdateUserPayload = {
+  name?: string;
+  grade?: string;
+  level?: string;
+  schoolId?: string;
+  classroomId?: string;
+  avatar?: string;
+};
 export const authAPI = {
   register: (data: RegisterData): Promise<AxiosResponse<LoginResponse>> =>
-    api.post("/auth/register", data),
+    api.post<LoginResponse>("/auth/register", data),
 
   login: (data: LoginData): Promise<AxiosResponse<LoginResponse>> =>
-    api.post("/auth/login", data),
+    api.post<LoginResponse>("/auth/login", data),
 
-  getCurrentUser: (): Promise<AxiosResponse<{ user: LoginResponse["user"] }>> =>
-    api.get("/auth/me"),
+  // GET /auth/me  -> { user: AuthUser }
+  getCurrentUser: (): Promise<AxiosResponse<{ user: AuthUser }>> =>
+    api.get<{ user: AuthUser }>("/auth/me"),
 
-  updateUser: (data: Partial<LoginResponse["user"]>): Promise<AxiosResponse<{ user: LoginResponse["user"] }>> =>
-    api.put("/auth/update", data),
+  // PUT /auth/update -> { user: AuthUser, token: string }
+  updateUser: (
+    data: UpdateUserPayload
+  ): Promise<AxiosResponse<{ user: AuthUser; token: string }>> =>
+    api.put<{ user: AuthUser; token: string }>("/auth/update", data),
 
   logout: async (): Promise<void> => {
     try {
@@ -109,7 +143,6 @@ export const authAPI = {
     }
   },
 };
-
 // ----------------- QUESTION -----------------
 export interface AIGenerateData {
   grade: string;
@@ -119,11 +152,33 @@ export interface AIGenerateData {
 }
 
 export const questionAPI = {
-  create: (data: QuestionData): Promise<AxiosResponse> => api.post("/questions", data),
-  getAll: (): Promise<AxiosResponse> => api.get("/questions"),
-  getOne: (id: string): Promise<AxiosResponse> => api.get(`/questions/${id}`),
-  update: (id: string, data: QuestionData): Promise<AxiosResponse> => api.put(`/questions/${id}`, data),
-  remove: (id: string): Promise<AxiosResponse> => api.delete(`/questions/${id}`),
+  create: (data: QuestionData): Promise<AxiosResponse> =>
+    api.post("/questions", data),
+
+  // cho phép truyền bộ lọc + all=true
+  getAll: (filters?: {
+    skill?: string;
+    level?: string;
+    grade?: string;
+    all?: boolean;
+  }): Promise<AxiosResponse> => {
+    const params: any = {};
+    if (filters?.skill) params.skill = filters.skill;
+    if (filters?.level) params.level = filters.level;
+    if (filters?.grade) params.grade = filters.grade;
+    if (filters?.all) params.all = true;
+
+    return api.get("/questions", { params });
+  },
+
+  getOne: (id: string): Promise<AxiosResponse> =>
+    api.get(`/questions/${id}`),
+
+  update: (id: string, data: QuestionData): Promise<AxiosResponse> =>
+    api.put(`/questions/${id}`, data),
+
+  remove: (id: string): Promise<AxiosResponse> =>
+    api.delete(`/questions/${id}`),
 
   generateAI: (data: AIGenerateData): Promise<AxiosResponse> =>
     api.post("/ai", data),
@@ -177,19 +232,30 @@ export const mockExamAPI = {
   delete(id: string) {
     return api.delete(`/mock-exams/${id}`);
   },
+  getUpcoming: () => api.get("/mock-exams/upcoming"),
 };
-// ----------------- RESULT -----------------
 export const resultAPI = {
-  create: (data: ResultData): Promise<AxiosResponse> => api.post("/results", data),
-  getMyResults: (): Promise<AxiosResponse> => api.get("/results/me"),
-  getByTest: (testId: string): Promise<AxiosResponse> => api.get(`/results/test/${testId}`),
+  create: (data: ResultData): Promise<AxiosResponse> =>
+    api.post("/results", data),
+
+  // thêm options để truyền lên query
+  getMyResults: (opts?: {
+    onlyCurrentClass?: boolean;
+    classroomId?: string;
+  }): Promise<AxiosResponse> =>
+    api.get("/results/me", { params: opts }),
+
+  getByTest: (testId: string): Promise<AxiosResponse> =>
+    api.get(`/results/test/${testId}`),
+
   getLeaderboard: (type: "score" | "attempts" | "speed" = "score") =>
     api.get(`/leaderboard?type=${type}&limit=10`),
 };
+
 // ----------------- SKILLS -----------------
 export type SkillItem = {
   name: string;
-  displayName?: string;
+  displayName?: string; 
   description?: string;
   questionCount?: number;
   examCount?: number;
@@ -214,13 +280,17 @@ export type RecentActivity = {
   finishedAt: string;
 };
 
-export type UpcomingExam = {
-  _id: string;
+export interface UpcomingExam {
+  id: string;
   title: string;
-  startTime: string;
-  duration?: number;
   skill?: string;
-};
+  schoolName?: string | null;
+  classroomName?: string | null;
+  grade?: string | null;
+  startTime: string;   // hoặc Date, tuỳ bạn parse
+  duration: number;
+  examType?: string;
+}
 export type InProgressExam = {
   _id: string;        // id của document progress
   examId: string;     // id bài thi gốc (Test hoặc MockExam)
@@ -246,6 +316,10 @@ export const dashboardAPI = {
 export const examProgressAPI = {
   me: (): Promise<AxiosResponse<InProgressExam[]>> =>
     api.get("/exam-progress/me"),
+};
+export const examAPI = {
+  getStatsByGrade: () => api.get("/exams/stats/by-grade"),
+  // ...
 };
 // ----------------- EXPORT -----------------
 export default api;

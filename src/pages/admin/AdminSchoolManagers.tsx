@@ -1,3 +1,4 @@
+// src/pages/admin/AdminSchoolManagers.tsx
 import { useEffect, useState } from "react";
 import axios from "axios";
 import {
@@ -23,61 +24,106 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  DropdownMenuSub,
-  DropdownMenuSubTrigger,
-  DropdownMenuSubContent,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import {
   Search,
   MoreHorizontal,
   Edit,
   Trash2,
-  UserPlus,
   Loader2,
 } from "lucide-react";
 
-const AdminUsers = () => {
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+
+type School = {
+  _id: string;
+  name: string;
+  code?: string;
+};
+
+const AdminSchoolManagers = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const [schools, setSchools] = useState<School[]>([]);
+  const [loadingSchools, setLoadingSchools] = useState(false);
+
+  // dialog tạo manager
+  const [createOpen, setCreateOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createForm, setCreateForm] = useState({
+    name: "",
+    email: "",
+    schoolId: "", // có thể gán manager vào 1 trường (tuỳ bạn)
+  });
 
   const token = localStorage.getItem("token");
 
   const fetchUsers = async () => {
     try {
       setLoading(true);
-      const res = await axios.get("http://localhost:5000/api/admin/users", {
+      const res = await axios.get(`${API_BASE_URL}/api/admin/users`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      setUsers(res.data);
+      const managers = (res.data || []).filter(
+        (u: any) => u.role === "school_manager"
+      );
+      setUsers(managers);
     } catch (err) {
-      console.error("Lỗi khi lấy danh sách user:", err);
+      console.error("Lỗi khi lấy danh sách quản lý trường:", err);
     } finally {
       setLoading(false);
     }
   };
 
-  const deleteUser = async (id: string) => {
-    if (!confirm("Bạn có chắc muốn xóa tài khoản này?")) return;
+  const fetchSchools = async () => {
     try {
-      await axios.delete(`http://localhost:5000/api/admin/users/${id}`, {
+      setLoadingSchools(true);
+      const res = await axios.get<{ schools: School[] }>(
+        `${API_BASE_URL}/api/admin/schools`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      setSchools(res.data.schools || []);
+    } catch (err) {
+      console.error("Lỗi khi lấy danh sách trường:", err);
+    } finally {
+      setLoadingSchools(false);
+    }
+  };
+
+  const deleteUser = async (id: string) => {
+    if (!confirm("Bạn có chắc muốn xóa tài khoản quản lý trường này?")) return;
+    try {
+      await axios.delete(`${API_BASE_URL}/api/admin/users/${id}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       fetchUsers();
     } catch (err) {
-      console.error("Lỗi khi xóa user:", err);
+      console.error("Lỗi khi xóa quản lý trường:", err);
     }
   };
 
   useEffect(() => {
     fetchUsers();
+    fetchSchools();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filteredUsers = users.filter(
     (u) =>
-      u.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      u.email.toLowerCase().includes(searchTerm.toLowerCase())
+      u.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      u.email?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const getStatusBadge = (u: any) =>
@@ -91,30 +137,73 @@ const AdminUsers = () => {
       </Badge>
     );
 
-  const getRoleBadge = (u: any) => {
-    if (u.role === "admin")
-      return (
-        <Badge className="bg-red-500/90 text-white shadow-sm">Admin</Badge>
-      );
-    if (u.role === "teacher")
-      return (
-        <Badge className="bg-blue-500/90 text-white shadow-sm">Teacher</Badge>
-      );
-    return <Badge variant="outline">Student</Badge>;
+  const getRoleBadge = () => (
+    <Badge className="bg-amber-500/90 text-white shadow-sm">
+      Quản lý trường
+    </Badge>
+  );
+
+  const getSchoolLabel = (user: any) => {
+    const userSchoolId =
+      typeof user.school === "string" ? user.school : user.school?._id;
+    if (!userSchoolId) return "—";
+    const s = schools.find((sc) => sc._id === userSchoolId);
+    if (!s) return "—";
+    return s.code ? `${s.name} (${s.code})` : s.name;
   };
 
   const total = users.length;
-  const admins = users.filter((u) => u.role === "admin").length;
-  const teachers = users.filter((u) => u.role === "teacher").length;
-  const students = users.filter((u) => u.role === "student").length;
+  const active = users.filter((u) => u.isActive).length;
   const blocked = users.filter((u) => !u.isActive).length;
+
+  const handleCreateChange =
+    (field: "name" | "email" | "schoolId") =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+      setCreateForm((prev) => ({ ...prev, [field]: e.target.value }));
+    };
+
+  const handleCreateUser = async () => {
+    if (!createForm.name.trim() || !createForm.email.trim()) {
+      alert("Tên và email không được để trống.");
+      return;
+    }
+
+    try {
+      setCreating(true);
+      await axios.post(
+        `${API_BASE_URL}/api/admin/users`,
+        {
+          name: createForm.name.trim(),
+          email: createForm.email.trim(),
+          role: "school_manager",
+          // nếu bạn muốn gán trường trực tiếp cho manager:
+          school: createForm.schoolId || undefined,
+        },
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      alert("Tạo tài khoản quản lý trường thành công.");
+      setCreateOpen(false);
+      setCreateForm({ name: "", email: "", schoolId: "" });
+      fetchUsers();
+    } catch (err: any) {
+      console.error("Lỗi tạo quản lý trường:", err);
+      alert(
+        err?.response?.data?.message ||
+          "Lỗi khi tạo tài khoản. Vui lòng thử lại."
+      );
+    } finally {
+      setCreating(false);
+    }
+  };
 
   if (loading)
     return (
       <div className="flex justify-center items-center h-[60vh] animate-fade-in">
         <Loader2 className="animate-spin h-6 w-6 text-primary mr-2" />
         <p className="text-sm text-muted-foreground">
-          Đang tải danh sách người dùng...
+          Đang tải danh sách quản lý trường...
         </p>
       </div>
     );
@@ -124,54 +213,40 @@ const AdminUsers = () => {
       {/* Header */}
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div className="space-y-1">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-            User management
-          </p>
-          <h1 className="text-2xl md:text-3xl font-bold text-foreground">
-            Quản lý người dùng
-          </h1>
-          <p className="text-xs md:text-sm text-muted-foreground">
-            Theo dõi, tìm kiếm và cập nhật quyền, trạng thái tài khoản trong hệ
-            thống.
-          </p>
+       
+        
+       
         </div>
       </div>
 
       {/* Mini stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+      <div className="grid grid-cols-3 gap-3 md:gap-4">
         <Card className="border border-border/70 bg-card/90 shadow-sm hover:shadow-md transition-all animate-slide-in">
           <CardContent className="py-3.5 px-4 flex flex-col gap-1">
             <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-              Tổng người dùng
-            </span>
-            <span className="text-xl font-semibold text-foreground">{total}</span>
-          </CardContent>
-        </Card>
-        <Card className="border border-border/70 bg-card/90 shadow-sm hover:shadow-md transition-all animate-slide-in">
-          <CardContent className="py-3.5 px-4 flex flex-col gap-1">
-            <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-              Admin / Teacher
-            </span>
-            <span className="text-sm text-foreground">
-              <span className="font-semibold">{admins}</span> admin ·{" "}
-              <span className="font-semibold">{teachers}</span> teacher
-            </span>
-          </CardContent>
-        </Card>
-        <Card className="border border-border/70 bg-card/90 shadow-sm hover:shadow-md transition-all animate-slide-in">
-          <CardContent className="py-3.5 px-4 flex flex-col gap-1">
-            <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-              Học viên
+              Tổng quản lý trường
             </span>
             <span className="text-xl font-semibold text-foreground">
-              {students}
+              {total}
             </span>
           </CardContent>
         </Card>
+
         <Card className="border border-border/70 bg-card/90 shadow-sm hover:shadow-md transition-all animate-slide-in">
           <CardContent className="py-3.5 px-4 flex flex-col gap-1">
             <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-              Tài khoản bị chặn
+              Đang hoạt động
+            </span>
+            <span className="text-xl font-semibold text-emerald-600">
+              {active}
+            </span>
+          </CardContent>
+        </Card>
+
+        <Card className="border border-border/70 bg-card/90 shadow-sm hover:shadow-md transition-all animate-slide-in">
+          <CardContent className="py-3.5 px-4 flex flex-col gap-1">
+            <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+              Bị chặn
             </span>
             <span className="text-xl font-semibold text-rose-600">
               {blocked}
@@ -185,7 +260,7 @@ const AdminUsers = () => {
         <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="space-y-1">
             <CardTitle className="text-base md:text-lg font-semibold text-foreground flex items-center gap-2">
-              Danh sách người dùng
+              Danh sách tài khoản quản lý trường
               <Badge variant="outline" className="text-[11px]">
                 {filteredUsers.length}/{users.length} hiển thị
               </Badge>
@@ -195,15 +270,24 @@ const AdminUsers = () => {
             </CardDescription>
           </div>
 
-          {/* Ô tìm kiếm */}
-          <div className="relative w-full sm:w-72">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground h-4 w-4" />
-            <Input
-              placeholder="Tìm kiếm tên hoặc email..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9 h-10 rounded-xl bg-background/80 focus-visible:ring-1 focus-visible:ring-primary/70"
-            />
+          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto sm:items-center">
+            {/* Ô tìm kiếm */}
+            <div className="relative w-full sm:w-72">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground h-4 w-4" />
+              <Input
+                placeholder="Tìm kiếm tên hoặc email..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-9 h-10 rounded-xl bg-background/80 focus-visible:ring-1 focus-visible:ring-primary/70"
+              />
+            </div>
+
+            <Button
+              className="h-10 rounded-xl sm:ml-2"
+              onClick={() => setCreateOpen(true)}
+            >
+              Thêm quản lý trường
+            </Button>
           </div>
         </CardHeader>
 
@@ -219,7 +303,7 @@ const AdminUsers = () => {
                     Email
                   </TableHead>
                   <TableHead className="font-semibold text-xs text-muted-foreground uppercase tracking-wide">
-                    Vai trò
+                    Trường phụ trách
                   </TableHead>
                   <TableHead className="font-semibold text-xs text-muted-foreground uppercase tracking-wide">
                     Trạng thái
@@ -236,7 +320,8 @@ const AdminUsers = () => {
                       colSpan={5}
                       className="text-center py-10 text-muted-foreground text-sm"
                     >
-                      Không có người dùng nào phù hợp với từ khóa tìm kiếm.
+                      Không có tài khoản quản lý trường nào phù hợp với từ khóa
+                      tìm kiếm.
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -254,7 +339,7 @@ const AdminUsers = () => {
                       >
                         <TableCell className="font-medium">
                           <div className="flex items-center gap-3">
-                            <div className="h-8 w-8 rounded-full bg-gradient-to-br from-primary to-sky-500 text-white flex items-center justify-center text-xs font-semibold shadow-sm group-hover:scale-105 transition-transform">
+                            <div className="h-8 w-8 rounded-full bg-gradient-to-br from-primary to-amber-500 text-white flex items-center justify-center text-xs font-semibold shadow-sm group-hover:scale-105 transition-transform">
                               {initial}
                             </div>
                             <div className="flex flex-col">
@@ -262,11 +347,7 @@ const AdminUsers = () => {
                                 {user.name}
                               </span>
                               <span className="text-[11px] text-muted-foreground">
-                                {user.role === "admin"
-                                  ? "Quản trị viên"
-                                  : user.role === "teacher"
-                                  ? "Giáo viên"
-                                  : "Học viên"}
+                                Quản lý trường
                               </span>
                             </div>
                           </div>
@@ -274,7 +355,9 @@ const AdminUsers = () => {
                         <TableCell className="text-sm text-muted-foreground">
                           {user.email}
                         </TableCell>
-                        <TableCell>{getRoleBadge(user)}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {getSchoolLabel(user)}
+                        </TableCell>
                         <TableCell>{getStatusBadge(user)}</TableCell>
                         <TableCell className="text-right">
                           <DropdownMenu>
@@ -300,7 +383,7 @@ const AdminUsers = () => {
                                 onClick={async () => {
                                   try {
                                     const res = await axios.put(
-                                      `http://localhost:5000/api/admin/users/${user._id}/active`,
+                                      `${API_BASE_URL}/api/admin/users/${user._id}/active`,
                                       { isActive: !user.isActive },
                                       {
                                         headers: {
@@ -323,62 +406,13 @@ const AdminUsers = () => {
                                   : "Mở khóa tài khoản"}
                               </DropdownMenuItem>
 
-                              {user.role !== "admin" && (
-                                <DropdownMenuSub>
-                                  <DropdownMenuSubTrigger className="cursor-pointer">
-                                    <UserPlus className="mr-2 h-4 w-4" />
-                                    Chỉnh sửa quyền
-                                  </DropdownMenuSubTrigger>
-                                  <DropdownMenuSubContent>
-                                    {["admin", "teacher", "student"].map(
-                                      (r) => (
-                                        <DropdownMenuItem
-                                          key={r}
-                                          className="cursor-pointer"
-                                          onClick={async () => {
-                                            if (r === user.role) return;
-                                            try {
-                                              await axios.put(
-                                                `http://localhost:5000/api/admin/users/${user._id}`,
-                                                { role: r },
-                                                {
-                                                  headers: {
-                                                    Authorization: `Bearer ${token}`,
-                                                  },
-                                                }
-                                              );
-                                              fetchUsers();
-                                            } catch (err) {
-                                              console.error(err);
-                                            }
-                                          }}
-                                        >
-                                          {r.charAt(0).toUpperCase() +
-                                            r.slice(1)}
-                                        </DropdownMenuItem>
-                                      )
-                                    )}
-                                  </DropdownMenuSubContent>
-                                </DropdownMenuSub>
-                              )}
-
-                              {user.role !== "admin" ? (
-                                <DropdownMenuItem
-                                  onClick={() => deleteUser(user._id)}
-                                  className="text-red-600 focus:text-red-700 cursor-pointer"
-                                >
-                                  <Trash2 className="mr-2 h-4 w-4" />
-                                  Xóa tài khoản
-                                </DropdownMenuItem>
-                              ) : (
-                                <DropdownMenuItem
-                                  disabled
-                                  className="text-gray-400 cursor-not-allowed"
-                                >
-                                  <Trash2 className="mr-2 h-4 w-4" />
-                                  Không thể xóa admin
-                                </DropdownMenuItem>
-                              )}
+                              <DropdownMenuItem
+                                onClick={() => deleteUser(user._id)}
+                                className="text-red-600 focus:text-red-700 cursor-pointer"
+                              >
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Xóa tài khoản
+                              </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>
@@ -391,8 +425,86 @@ const AdminUsers = () => {
           </div>
         </CardContent>
       </Card>
+
+      {/* Dialog tạo quản lý trường */}
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Thêm tài khoản quản lý trường</DialogTitle>
+            <DialogDescription>
+              Tạo tài khoản mới với vai trò school_manager và (tuỳ chọn) gán vào
+              một trường.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Họ tên</label>
+              <Input
+                placeholder="VD: Trần Thị B"
+                value={createForm.name}
+                onChange={handleCreateChange("name")}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Email</label>
+              <Input
+                placeholder="VD: manager@example.com"
+                type="email"
+                value={createForm.email}
+                onChange={handleCreateChange("email")}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-sm font-medium">
+                Trường phụ trách (tuỳ chọn)
+              </label>
+              <select
+                className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                value={createForm.schoolId}
+                onChange={handleCreateChange("schoolId")}
+              >
+                <option value="">
+                  {loadingSchools
+                    ? "Đang tải danh sách trường..."
+                    : "Chưa gán trường"}
+                </option>
+                {schools.map((s) => (
+                  <option key={s._id} value={s._id}>
+                    {s.name} {s.code ? `(${s.code})` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <p className="text-[11px] text-muted-foreground">
+              Mật khẩu mặc định: <span className="font-mono">123456</span>{" "}
+              (có thể đổi sau).
+            </p>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setCreateOpen(false)}
+              >
+                Hủy
+              </Button>
+              <Button
+                type="button"
+                onClick={handleCreateUser}
+                disabled={creating}
+              >
+                {creating ? "Đang tạo..." : "Tạo tài khoản"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
 
-export default AdminUsers;
+export default AdminSchoolManagers;

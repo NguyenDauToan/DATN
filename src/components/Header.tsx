@@ -2,8 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { LogIn, LogOut, User as UserIcon, BarChart3, LayoutDashboard, Target, Brain, MessageSquare, Menu, X, GraduationCap } from "lucide-react";
-import { useAuth } from "@/data/AuthContext.jsx";
-import AuthDialog from "@/pages/user/AuthDialog";
+import { useAuth } from "@/data/AuthContext.js";
 import { useLocation } from "react-router-dom";
 import { ClipboardList } from "lucide-react";
 
@@ -40,22 +39,22 @@ export default function Header() {
 
   // Menu items
   const items = [
-    
+
   ];
 
   if (user && user.role === "student") {
     items.push(
       { title: "Luyện tập", url: "/practice", icon: Target },
       { title: "Cải thiện", url: "/adaptive", icon: Brain },
-      { title: "Thi thử", url: "/mock-exams", icon: ClipboardList  },
-  
+      { title: "Thi thử", url: "/mock-exams", icon: ClipboardList },
+
       { title: "Bảng xếp hạng", url: "/leaderboard", icon: BarChart3 }
     );
   }
 
   return (
     <>
-      <header className="sticky top-0 z-50 w-full border-b border-header-border bg-header-bg/95 backdrop-blur supports-[backdrop-filter]:bg-header-bg/80" style={{marginBottom:-25}}>
+      <header className="sticky top-0 z-50 w-full border-b border-header-border bg-header-bg/95 backdrop-blur supports-[backdrop-filter]:bg-header-bg/80" style={{ marginBottom: -25 }}>
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 items-center justify-between">
             {/* Logo */}
@@ -72,7 +71,7 @@ export default function Header() {
                     navigate("/"); // đang ở trang khác, chưa login → đi index
                   }
                 }}
-                
+
               >
                 <div className="relative">
                   <div className="w-10 h-10 rounded-xl bg-gradient-primary flex items-center justify-center shadow-md group-hover:shadow-lg transition-all duration-300 group-hover:scale-105">
@@ -109,7 +108,7 @@ export default function Header() {
 
             {/* Right side */}
             <div className="flex items-center gap-3">
-              {user ? (
+              {user && (
                 <div className="relative" ref={dropdownRef}>
                   {/* Avatar button */}
                   <button
@@ -117,9 +116,14 @@ export default function Header() {
                     className="flex items-center gap-2.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-secondary/60 to-secondary/40 border border-border/50 hover:from-secondary/80 hover:to-secondary/60 transition-all duration-300 cursor-pointer shadow-sm hover:shadow-md"
                   >
                     <div className="w-8 h-8 rounded-full bg-gradient-accent flex items-center justify-center text-white font-semibold text-sm shadow-sm ring-2 ring-white/20">
-                      {user.name.charAt(0).toUpperCase()}
+                      {(user?.name?.trim()?.charAt(0) ||
+                        user?.email?.trim()?.charAt(0) ||
+                        "U"
+                      ).toUpperCase()}
                     </div>
-                    <span className="text-sm font-semibold text-foreground max-w-[120px] truncate">{user.name}</span>
+                    <span className="text-sm font-semibold text-foreground max-w-[120px] truncate">
+                      {user?.name || user?.email || "Người dùng"}
+                    </span>
                   </button>
 
                   {/* Dropdown */}
@@ -148,15 +152,6 @@ export default function Header() {
                     </div>
                   )}
                 </div>
-              ) : (
-                <Button
-                  onClick={() => setOpenAuth(true)}
-                  className="relative overflow-hidden bg-gradient-primary text-white hover:opacity-90 shadow-lg hover:shadow-xl transition-all duration-300 font-semibold rounded-xl group"
-                >
-                  <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent translate-x-[-200%] group-hover:translate-x-[200%] transition-transform duration-700" />
-                  <LogIn className="h-4 w-4 mr-2 transition-transform group-hover:scale-110" />
-                  Đăng nhập
-                </Button>
               )}
 
               {/* Mobile menu toggle */}
@@ -200,7 +195,7 @@ export default function Header() {
         )}
       </header>
 
-      <AuthDialog open={openAuth} onClose={() => setOpenAuth(false)} onLoginSuccess={handleLoginSuccess} />
+      
     </>
   );
 }

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/data/AuthContext";
 import { Brain, Sparkles, Activity } from "lucide-react";
 import { toast } from "sonner";
+import { useNavigate } from "react-router-dom";
 
 interface Course {
   _id: string;
@@ -22,16 +23,43 @@ interface RecommendationResponse {
 }
 
 const skillLabels: Record<string, string> = {
-  grammar: "Ngữ pháp",
-  vocabulary: "Từ vựng",
+  listening: "Nghe",
+  speaking: "Nói",
   reading: "Đọc hiểu",
-  listening: "Nghe hiểu",
+  writing: "Viết",
 };
+
 
 export default function AdaptiveLearning() {
   const { user } = useAuth();
   const [data, setData] = useState<RecommendationResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
+  // Map từ skill gợi ý sang tab trên Dashboard
+  // Map skill từ BE sang tab trên Dashboard
+  const mapSkillToDashboardTab = (skill: string): string => {
+    // normalize vài case sai chính tả
+    const normalized = skill.toLowerCase();
+    if (normalized === "writting") return "writing";
+
+    if (
+      normalized === "listening" ||
+      normalized === "speaking" ||
+      normalized === "reading" ||
+      normalized === "writing"
+    ) {
+      return normalized;
+    }
+
+    // nếu lỡ BE trả linh tinh thì cho về all
+    return "all";
+  };
+
+  const goToSkillPractice = (skill: string) => {
+    const tab = mapSkillToDashboardTab(skill);
+    navigate(`/dashboard?skill=${tab}`);
+  };
+
 
   useEffect(() => {
     if (!user?._id) return;
@@ -159,7 +187,19 @@ export default function AdaptiveLearning() {
                   Hãy ưu tiên làm thêm các bài tập {weakestLabel.toLowerCase()}.
                   Các bài gợi ý bên dưới đã được chọn phù hợp cho bạn.
                 </p>
+
+                <div className="pt-2">
+                  <Button
+                    size="sm"
+                    className="bg-white/90 text-sky-700 hover:bg-white"
+                    onClick={() => goToSkillPractice(data.weakestSkill)}   // 👈 DÙNG SKILL GỢI Ý
+                  >
+                    Làm bài theo kỹ năng này
+                  </Button>
+                </div>
               </CardContent>
+
+
             </Card>
 
             {/* Stats card */}
@@ -250,14 +290,16 @@ export default function AdaptiveLearning() {
                         <Button
                           size="sm"
                           className="rounded-xl px-4"
-                          onClick={() =>
-                            toast.success(
-                              "Tính năng 'Làm ngay' sẽ được kết nối với bài luyện tập cụ thể."
-                            )
-                          }
+                          onClick={() => {
+                            // nếu sau này có course.skill thì ưu tiên nó:
+                            // const skill = (course as any).skill || data.weakestSkill;
+                            const skill = data.weakestSkill;
+                            goToSkillPractice(skill);
+                          }}
                         >
                           Làm ngay
                         </Button>
+
                       </div>
                     </CardContent>
                   </Card>

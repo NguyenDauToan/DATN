@@ -27,7 +27,6 @@ export default function ChatBubble() {
   const [initialLoaded, setInitialLoaded] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [conversationEnded, setConversationEnded] = useState(false);
-  const [waitingApproval, setWaitingApproval] = useState(false);
 
   // ---- trạng thái chat với TRỢ LÝ HỆ THỐNG ----
   const [mode, setMode] = useState<"assistant" | "teacher">("assistant");
@@ -103,14 +102,8 @@ export default function ChatBubble() {
       // Trạng thái hội thoại hiện tại = trạng thái của tin cuối
       const lastItem = list[list.length - 1];
       const lastEnded = !!lastItem?.ended;
-      const hasReply = list.some((fb) => fb.reply);
 
       setConversationEnded(lastEnded);
-      // Chờ GV chấp nhận khi: có feedback, chưa có reply nào, và tin cuối chưa ended
-      setWaitingApproval(list.length > 0 && !hasReply && !lastEnded);
-
-
-
       recomputeUnread(list);
 
       setTimeout(() => {
@@ -126,7 +119,7 @@ export default function ChatBubble() {
   const handleSendTeacher = async () => {
     if (conversationEnded) {
       toast.info(
-        "Giáo viên đã kết thúc cuộc trò chuyện. Hãy dùng Trợ lý hệ thống để tiếp tục được hỗ trợ."
+        "Giáo viên đã kết thúc cuộc trò chuyện. Hãy dùng Trợ lý hệ thống hoặc bấm 'Liên hệ giáo viên' để mở cuộc trò chuyện mới."
       );
       setMode("assistant");
       return;
@@ -140,37 +133,50 @@ export default function ChatBubble() {
       const fb = res.data?.feedback ?? res.data;
       if (!fb || !fb._id) return;
 
+      // ⚠ Nếu backend không tìm được lớp / GVCN => không có toTeacher
+      if (!fb.toTeacher) {
+        toast.error(
+          "Tài khoản của bạn chưa được gán vào lớp và giáo viên chủ nhiệm, nên không thể gửi tin trực tiếp."
+        );
+        setMode("assistant");
+        return;
+      }
+
       setFeedbacks((prev) => {
         const exists = prev.some((x) => x._id === fb._id);
         if (exists) return prev;
         return [...prev, fb];
       });
 
+      // gửi lên socket cho server, trong fb đã có school / classroom / toTeacher
       socket?.emit("send_message", fb);
+
       setMessage("");
       scrollToBottom();
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      toast.error("Gửi phản hồi thất bại!");
+      const msg =
+        err?.response?.data?.message ||
+        "Gửi phản hồi thất bại! Vui lòng kiểm tra lại.";
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
   };
 
   // ----- khi bấm "Liên hệ giáo viên" từ Bot -----
+  // KHÔNG còn khái niệm chấp nhận/từ chối, HS bấm là gửi luôn cho GVCN
   const handleContactTeacher = async () => {
-    try {
-      // ĐÃ có lịch sử và cuộc hiện tại CHƯA kết thúc => chỉ mở tab giáo viên
-      if (feedbacks.length > 0 && !conversationEnded) {
-        setMode("teacher");
-        setWaitingApproval(false);
-        return;
-      }
+    // nếu đã có hội thoại đang mở (chưa kết thúc) thì chỉ cần chuyển tab
+    const needOpenNew =
+      feedbacks.length === 0 || conversationEnded === true;
 
-      // Cuộc cũ đã kết thúc HOẶC chưa có gì => tạo yêu cầu mới
-      setMode("teacher");
-      setConversationEnded(false); // mở hội thoại mới
-      setWaitingApproval(true);    // đang gửi yêu cầu tới GV
+    setMode("teacher");
+
+    if (!needOpenNew) return;
+
+    try {
+      setLoading(true);
 
       const autoText =
         "Em cần giáo viên hỗ trợ thêm về hệ thống/bài học. Thầy/cô có thể phản hồi giúp em khi rảnh ạ.";
@@ -179,24 +185,38 @@ export default function ChatBubble() {
       const fb = res.data?.feedback ?? res.data;
       if (!fb || !fb._id) {
         toast.error("Không gửi được yêu cầu tới giáo viên.");
-        setWaitingApproval(false);
-        setMode("assistant"); // nếu lỗi thì quay lại bot
+        setMode("assistant");
         return;
       }
 
+      // ⚠ Kiểm tra đã map được tới giáo viên của lớp chưa
+      if (!fb.toTeacher) {
+        toast.error(
+          "Tài khoản của bạn chưa được gán vào lớp và giáo viên chủ nhiệm, nên không thể liên hệ trực tiếp giáo viên."
+        );
+        setMode("assistant");
+        return;
+      }
+
+      setConversationEnded(false); // mở lại hội thoại mới
       setFeedbacks((prev) => [...prev, fb]);
-      socket?.emit("send_message", fb);
+      socket?.emit("send_message", fb); // fb chứa thông tin school/classroom/toTeacher
 
       scrollToBottom();
-      toast.success("Đã gửi yêu cầu tới giáo viên. Vui lòng chờ chấp nhận.");
-    } catch (e) {
-      console.error(e);
-      toast.error("Không gửi được yêu cầu tới giáo viên, hãy thử lại sau.");
-      setWaitingApproval(false);
+      toast.success(
+        "Đã gửi tin nhắn tới giáo viên. Bạn có thể tiếp tục trò chuyện tại đây."
+      );
+    } catch (err: any) {
+      console.error(err);
+      const msg =
+        err?.response?.data?.message ||
+        "Gửi phản hồi thất bại! Vui lòng kiểm tra lại.";
+      toast.error(msg);
       setMode("assistant");
+    } finally {
+      setLoading(false);
     }
   };
-
 
   // ----- gửi tin nhắn cho TRỢ LÝ HỆ THỐNG -----
   const handleSendAssistant = async () => {
@@ -276,7 +296,6 @@ export default function ChatBubble() {
   // 👇 KẾT NỐI SOCKET + JOIN ROOM THEO userId
   useEffect(() => {
     const s = io("http://localhost:5000", {
-      // nếu bạn muốn kèm token cho onlineUsers:
       query: {
         token: localStorage.getItem("token") || "",
       },
@@ -284,7 +303,7 @@ export default function ChatBubble() {
     setSocket(s);
 
     if (userId) {
-      s.emit("join_user", userId); // join room để nhận event riêng
+      s.emit("join_user", userId); // server cần handle event này
     }
 
     s.on("receive_message", (data: any) => {
@@ -313,7 +332,8 @@ export default function ChatBubble() {
       });
 
       if (data.reply) {
-        setWaitingApproval(false);
+        // khi giáo viên trả lời thì chắc chắn đang có hội thoại mở
+        setConversationEnded(false);
         // 👇 luôn chuyển sang tab GIÁO VIÊN khi có reply
         setMode("teacher");
       }
@@ -323,7 +343,6 @@ export default function ChatBubble() {
       if (initialLoaded) scrollToBottom();
     });
 
-
     // 👇 GIÁO VIÊN KẾT THÚC HỘI THOẠI -> RECEIVE EVENT
     s.on("conversation_ended", (payload: any) => {
       if (!payload?.userId) return;
@@ -331,7 +350,9 @@ export default function ChatBubble() {
       if (userId && String(payload.userId) !== String(userId)) return;
 
       setConversationEnded(true);
-      toast.info("Giáo viên đã kết thúc cuộc trò chuyện. Bạn sẽ được chuyển về Bot trợ lý.");
+      toast.info(
+        "Giáo viên đã kết thúc cuộc trò chuyện. Bạn sẽ được chuyển về Bot trợ lý."
+      );
     });
 
     fetchFeedbacks();
@@ -348,11 +369,6 @@ export default function ChatBubble() {
       const timeout = setTimeout(scrollToBottom, 100);
       return () => clearTimeout(timeout);
     }
-  }, [feedbacks]);
-
-  useEffect(() => {
-    const hasReply = feedbacks.some((fb) => fb.reply);
-    if (hasReply) setWaitingApproval(false);
   }, [feedbacks]);
 
   // Khi giáo viên kết thúc hội thoại -> tự chuyển sang bot + chèn thông báo
@@ -403,6 +419,7 @@ export default function ChatBubble() {
       handleCloseClick();
     }
   };
+
   return (
     <>
       {/* Nút nổi – chỉ hiện khi popup đóng */}
@@ -429,13 +446,17 @@ export default function ChatBubble() {
       {/* Popup */}
       {open && (
         <div
-          className={`fixed inset-0 z-40 flex items-end justify-end bg-black/20 backdrop-blur-sm p-4 ${isClosing ? "animate-chat-overlay-out" : "animate-chat-overlay-in"
-            }`}
+          className={`fixed inset-0 z-40 flex items-end justify-end bg-black/20 backdrop-blur-sm p-4 ${
+            isClosing
+              ? "animate-chat-overlay-out"
+              : "animate-chat-overlay-in"
+          }`}
           onMouseDown={handleOverlayClick}
         >
           <Card
-            className={`relative flex h-[520px] w-full max-w-sm flex-col overflow-hidden rounded-3xl border border-border/70 bg-gradient-to-b from-white to-slate-50 shadow-2xl ${isClosing ? "animate-chat-out" : "animate-chat-in"
-              }`}
+            className={`relative flex h-[520px] w-full max-w-sm flex-col overflow-hidden rounded-3xl border border-border/70 bg-gradient-to-b from-white to-slate-50 shadow-2xl ${
+              isClosing ? "animate-chat-out" : "animate-chat-in"
+            }`}
             onAnimationEnd={handleCardAnimationEnd}
             onMouseDown={(e) => e.stopPropagation()}
           >
@@ -537,6 +558,7 @@ export default function ChatBubble() {
                     <Button
                       className="w-full rounded-2xl bg-amber-500 text-white text-sm font-semibold shadow-md hover:bg-amber-600"
                       onClick={handleContactTeacher}
+                      disabled={loading}
                     >
                       Liên hệ giáo viên
                     </Button>
@@ -574,7 +596,7 @@ export default function ChatBubble() {
                       Giáo viên đã kết thúc cuộc trò chuyện.
                     </p>
                     <p>• Bạn vẫn có thể tiếp tục hỏi Bot trợ lý.</p>
-                    <p>• Hoặc quay lại liên hệ giáo viên khi cần thiết.</p>
+                    <p>• Hoặc bấm lại "Liên hệ giáo viên" để mở cuộc trò chuyện mới.</p>
                   </div>
                   <Button
                     className="w-full rounded-2xl bg-sky-600 text-white text-sm font-semibold shadow-md hover:bg-sky-700"
@@ -583,19 +605,7 @@ export default function ChatBubble() {
                     Chat với Bot trợ lý
                   </Button>
                 </div>
-              ) : waitingApproval ? (
-                // Đang chờ GV chấp nhận
-                <div className="space-y-3 text-xs text-slate-600">
-                  <div className="rounded-2xl border border-amber-100 bg-amber-50 px-3 py-2">
-                    <p className="font-medium mb-1">
-                      Đang gửi yêu cầu tới giáo viên...
-                    </p>
-                    <p>• Yêu cầu của bạn đã được chuyển tới giáo viên.</p>
-                    <p>• Khi giáo viên chấp nhận, bạn sẽ nhận được phản hồi tại đây.</p>
-                  </div>
-                </div>
               ) : (
-                // Input chat với giáo viên
                 // Input chat với giáo viên + nút thoát
                 <div className="space-y-2">
                   <div className="flex items-end gap-2">
@@ -633,7 +643,6 @@ export default function ChatBubble() {
                     </Button>
                   </div>
                 </div>
-
               )}
             </div>
           </Card>

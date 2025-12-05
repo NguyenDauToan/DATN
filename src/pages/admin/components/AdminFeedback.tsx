@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef  } from "react";
+import { useEffect, useState, useRef } from "react";
 import api from "@/api/Api";
 import {
   Card,
@@ -24,6 +24,10 @@ export default function AdminFeedback() {
   const [socket, setSocket] = useState<Socket | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
 
+  // lấy id & role hiện tại từ localStorage
+  const [currentUserId] = useState(() => localStorage.getItem("userId") || "");
+  const [currentRole] = useState(() => localStorage.getItem("role") || "");
+
   const scrollToBottom = () => {
     setTimeout(() => {
       const el = messagesContainerRef.current;
@@ -34,12 +38,28 @@ export default function AdminFeedback() {
       });
     }, 50);
   };
-  
+
+  // check 1 feedback có thuộc giáo viên hiện tại không
+  const isForCurrentTeacher = (fb: any) => {
+    if (!currentUserId) return false;
+    const t = fb.toTeacher;
+    if (!t) return false;
+    if (typeof t === "string") return t === currentUserId;
+    return String(t._id) === String(currentUserId);
+  };
+
   const fetchFeedbacks = async () => {
     try {
       setLoading(true);
       const res = await api.get("/feedback");
-      setFeedbacks(res.data || []);
+      let list: any[] = res.data || [];
+
+      // nếu là giáo viên -> chỉ giữ feedback gửi cho giáo viên đó
+      if (currentRole === "teacher" && currentUserId) {
+        list = list.filter(isForCurrentTeacher);
+      }
+
+      setFeedbacks(list);
     } catch {
       toast.error("Không thể tải danh sách phản hồi.");
     } finally {
@@ -49,7 +69,9 @@ export default function AdminFeedback() {
 
   useEffect(() => {
     fetchFeedbacks();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
   useEffect(() => {
     // kết nối socket
     const s = io("http://localhost:5000", {
@@ -57,37 +79,39 @@ export default function AdminFeedback() {
         token: localStorage.getItem("token") || "",
       },
     });
-  
+
     setSocket(s);
-  
-    // Khi có feedback mới từ học sinh
+
+    // Khi có feedback mới hoặc cập nhật
     s.on("admin_new_message", (fb: any) => {
+      // nếu là giáo viên thì chỉ nhận tin của chính mình
+      if (currentRole === "teacher" && currentUserId && !isForCurrentTeacher(fb)) {
+        return;
+      }
+
       setFeedbacks((prev) => {
-        // tránh trùng nếu đã tồn tại
         const idx = prev.findIndex((x) => x._id === fb._id);
         if (idx !== -1) {
           const next = [...prev];
           next[idx] = { ...next[idx], ...fb };
           return next;
         }
-        // thêm lên đầu (hoặc cuối tuỳ UI)
         return [fb, ...prev];
       });
     });
-  
-    // (tuỳ bạn) nếu muốn nhận luôn update khi giáo viên khác reply từ nơi khác,
-    // có thể nghe thêm event khác như "receive_message_for_admin"
-  
+
     return () => {
       s.off("admin_new_message");
       s.disconnect();
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUserId, currentRole]);
+
   useEffect(() => {
     if (!selectedUser) return;
     scrollToBottom();
   }, [feedbacks, selectedUser]);
-  
+
   const handleReply = async (feedbackId: string) => {
     if (!selectedUser) return;
     const text = replyText[selectedUser._id];
@@ -103,23 +127,7 @@ export default function AdminFeedback() {
     }
   };
 
-  const handleEndConversation = async () => {
-    if (!selectedUser || userFeedbacks.length === 0) {
-      return toast.error("Không có hội thoại nào để kết thúc.");
-    }
-
-    const last = userFeedbacks[userFeedbacks.length - 1];
-
-    try {
-      await api.post(`/feedback/${last._id}/end-conversation`);
-      toast.success("Đã kết thúc cuộc hội thoại với học sinh.");
-      fetchFeedbacks();
-    } catch {
-      toast.error("Lỗi khi kết thúc hội thoại.");
-    }
-  };
-
-  // Unique users có feedback
+  // Unique users trong list feedbacks
   const users = [
     ...new Map(
       feedbacks
@@ -130,38 +138,15 @@ export default function AdminFeedback() {
 
   const userFeedbacks = selectedUser
     ? feedbacks
-      .filter((fb) => fb.user?._id === selectedUser._id)
-      .slice()
-      .sort(
-        (a, b) =>
-          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-      )
+        .filter((fb) => fb.user?._id === selectedUser._id)
+        .slice()
+        .sort(
+          (a, b) =>
+            new Date(a.createdAt).getTime() -
+            new Date(b.createdAt).getTime()
+        )
     : [];
 
-  const userEnded = userFeedbacks.some((fb) => fb.ended);
-  const hasTeacherReply = userFeedbacks.some((fb) => fb.reply);
-
-  // Chấp nhận yêu cầu liên hệ
-  const handleAcceptRequest = async () => {
-    if (!selectedUser || userFeedbacks.length === 0) {
-      return toast.error("Không có yêu cầu nào để chấp nhận.");
-    }
-
-    const last = userFeedbacks[userFeedbacks.length - 1];
-
-    try {
-      await api.post(`/feedback/${last._id}/reply`, {
-        reply:
-          "Thầy/cô đã nhận được yêu cầu, em cứ gửi câu hỏi tại đây nhé.",
-      });
-      toast.success("Đã chấp nhận yêu cầu và mở cuộc hội thoại.");
-      fetchFeedbacks();
-    } catch {
-      toast.error("Lỗi khi chấp nhận yêu cầu.");
-    }
-  };
-
-  // Chỉ hiện số chưa đọc nếu chưa click vào user đó
   const unreadCount = (userId: string) => {
     if (selectedUser && selectedUser._id === userId) return 0;
     return feedbacks.filter(
@@ -305,44 +290,13 @@ export default function AdminFeedback() {
                       >
                         Học sinh đang chọn
                       </Badge>
-
-                      <div className="flex items-center gap-2">
-                        {!userEnded &&
-                          !hasTeacherReply &&
-                          userFeedbacks.length > 0 ? (
-                          <>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="rounded-full text-[11px] border-emerald-300 text-emerald-700"
-                              onClick={handleAcceptRequest}
-                            >
-                              Chấp nhận yêu cầu
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="rounded-full text-[11px] border-rose-300 text-rose-700"
-                              onClick={handleEndConversation}
-                            >
-                              Từ chối
-                            </Button>
-                          </>
-                        ) : (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="rounded-full text-[11px]"
-                            onClick={handleEndConversation}
-                          >
-                            Kết thúc hội thoại
-                          </Button>
-                        )}
-                      </div>
                     </div>
 
                     {/* Messages */}
-                    <div  ref={messagesContainerRef} className="flex-1 space-y-3 overflow-y-auto bg-muted/40 px-5 py-4 animate-fade-in">
+                    <div
+                      ref={messagesContainerRef}
+                      className="flex-1 space-y-3 overflow-y-auto bg-muted/40 px-5 py-4 animate-fade-in"
+                    >
                       {userFeedbacks.length === 0 ? (
                         <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
                           Học sinh này chưa gửi phản hồi nào.
@@ -383,8 +337,8 @@ export default function AdminFeedback() {
                                     GV •{" "}
                                     {new Date(
                                       fb.updatedAt ??
-                                      fb.repliedAt ??
-                                      fb.createdAt
+                                        fb.repliedAt ??
+                                        fb.createdAt
                                     ).toLocaleString("vi-VN", {
                                       hour: "2-digit",
                                       minute: "2-digit",
@@ -401,50 +355,61 @@ export default function AdminFeedback() {
                     </div>
 
                     {/* Input */}
-                    <div className="border-t border-border/60 bg-background px-5 py-3">
-                      <div className="flex items-end gap-3">
-                        <Textarea
-                          placeholder={`Phản hồi cho ${selectedUser.name}...`}
-                          rows={2}
-                          value={replyText[selectedUser._id] || ""}
-                          onChange={(e) =>
-                            setReplyText((prev) => ({
-                              ...prev,
-                              [selectedUser._id]: e.target.value,
-                            }))
-                          }
-                          className="flex-1 resize-none rounded-2xl border-border/70 bg-muted/60 shadow-sm focus-visible:ring-2 focus-visible:ring-indigo-400"
-                        />
-                        <Button
-                          className="rounded-2xl bg-indigo-600 px-5 shadow-sm hover:bg-indigo-700 hover:shadow-md transition-all"
-                          onClick={() => {
-                            const text = replyText[selectedUser._id]?.trim();
-                            if (!text) {
-                              return toast.error("Vui lòng nhập phản hồi!");
+                    {currentRole === "teacher" ? (
+                      <div className="border-t border-border/60 bg-background px-5 py-3">
+                        <div className="flex items-end gap-3">
+                          <Textarea
+                            placeholder={`Phản hồi cho ${selectedUser.name}...`}
+                            rows={2}
+                            value={replyText[selectedUser._id] || ""}
+                            onChange={(e) =>
+                              setReplyText((prev) => ({
+                                ...prev,
+                                [selectedUser._id]: e.target.value,
+                              }))
                             }
+                            className="flex-1 resize-none rounded-2xl border-border/70 bg-muted/60 shadow-sm focus-visible:ring-2 focus-visible:ring-indigo-400"
+                          />
+                          <Button
+                            className="rounded-2xl bg-indigo-600 px-5 shadow-sm hover:bg-indigo-700 hover:shadow-md transition-all"
+                            onClick={() => {
+                              const text =
+                                replyText[selectedUser._id]?.trim();
+                              if (!text) {
+                                return toast.error(
+                                  "Vui lòng nhập phản hồi!"
+                                );
+                              }
 
-                            // luôn gửi gắn với tin nhắn mới nhất của học sinh
-                            if (userFeedbacks.length === 0) {
-                              return toast.error(
-                                "Chưa có lịch sử nào với học sinh này để gắn phản hồi."
-                              );
-                            }
+                              if (userFeedbacks.length === 0) {
+                                return toast.error(
+                                  "Chưa có lịch sử nào với học sinh này để gắn phản hồi."
+                                );
+                              }
 
-                            const last = userFeedbacks[userFeedbacks.length - 1];
-                            handleReply(last._id);
-                          }}
-                        >
-                          Gửi
-                        </Button>
+                              const last =
+                                userFeedbacks[userFeedbacks.length - 1];
+                              handleReply(last._id);
+                            }}
+                          >
+                            Gửi
+                          </Button>
+                        </div>
                       </div>
-                    </div>
-
+                    ) : (
+                      <div className="border-t border-border/60 bg-background px-5 py-3">
+                        <p className="text-xs text-muted-foreground">
+                          Bạn chỉ có quyền xem lịch sử phản hồi. Chỉ giáo viên
+                          mới được trả lời tin nhắn.
+                        </p>
+                      </div>
+                    )}
                   </>
                 ) : (
                   <div className="flex flex-1 flex-col items-center justify-center gap-3 text-muted-foreground animate-fade-in">
                     <MessageCircle className="h-10 w-10 text-muted-foreground/80" />
                     <p className="text-sm">
-                      Chọn một học sinh bên trái để bắt đầu hội thoại 💬
+                      Chọn một học sinh bên trái để bắt đầu xem hội thoại 💬
                     </p>
                   </div>
                 )}
