@@ -1,9 +1,17 @@
 // src/api/api.ts
 import axios, { AxiosResponse } from "axios";
 
+// Lấy base URL từ env (Vercel + dev)
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+
+// Bỏ dấu / dư ở cuối nếu có
+const BASE = API_BASE_URL.replace(/\/+$/, "");
+
 // ----------------- Axios instance -----------------
 const api = axios.create({
-  baseURL: "/api", // dùng proxy Vite dev server
+  baseURL: `${BASE}/api`,
+  withCredentials: true,
 });
 
 // Interceptor thêm token tự động
