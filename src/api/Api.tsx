@@ -11,7 +11,6 @@ const BASE = API_BASE_URL.replace(/\/+$/, "");
 // ----------------- Axios instance -----------------
 const api = axios.create({
   baseURL: `${BASE}/api`,
-  withCredentials: true,
 });
 
 // Interceptor thêm token tự động
