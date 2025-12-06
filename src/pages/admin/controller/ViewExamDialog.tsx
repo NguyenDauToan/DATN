@@ -26,7 +26,7 @@ export default function ViewExamDialog({ examId, onClose }: ViewExamDialogProps)
   useEffect(() => {
     const fetchExam = async () => {
       try {
-        const res = await axios.get(`http://localhost:5000/api/exams/${examId}`, {
+        const res = await axios.get(`https://english-backend-uoic.onrender.com/api/exams/${examId}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         setExam(res.data);

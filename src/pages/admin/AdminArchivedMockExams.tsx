@@ -289,7 +289,7 @@ export default function AdminArchivedMockExams() {
         return;
       }
 
-      const res = await axios.get("http://localhost:5000/api/mock-exams", {
+      const res = await axios.get("https://english-backend-uoic.onrender.com/api/mock-exams", {
         headers: { Authorization: `Bearer ${token}` },
         params: { archived: true }, // ⬅️ lấy đề đã lưu trữ
       });
@@ -326,7 +326,7 @@ export default function AdminArchivedMockExams() {
       setSelectedExam(null);
 
       const res = await axios.get(
-        `http://localhost:5000/api/mock-exams/${id}`,
+        `https://english-backend-uoic.onrender.com/api/mock-exams/${id}`,
         {
           headers: { Authorization: `Bearer ${token}` },
         }
@@ -371,7 +371,7 @@ export default function AdminArchivedMockExams() {
 
     try {
       await axios.patch(
-        `http://localhost:5000/api/mock-exams/${id}/restore`,
+        `https://english-backend-uoic.onrender.com/api/mock-exams/${id}/restore`,
         // nếu muốn chọn năm học khác ở UI, có thể truyền body { schoolYearId: "..." }
         {},
         {
@@ -409,7 +409,7 @@ export default function AdminArchivedMockExams() {
     }
 
     try {
-      await axios.delete(`http://localhost:5000/api/mock-exams/${id}`, {
+      await axios.delete(`https://english-backend-uoic.onrender.com/api/mock-exams/${id}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
