@@ -74,7 +74,7 @@ export default function AdminFeedback() {
 
   useEffect(() => {
     // kết nối socket
-    const s = io("https://english-backend-uoic.onrender.com", {
+    const s = io("http://localhost:5000", {
       query: {
         token: localStorage.getItem("token") || "",
       },

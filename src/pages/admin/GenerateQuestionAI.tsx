@@ -46,7 +46,7 @@ export function GenerateQuestionAI({ onSuccess }: { onSuccess?: () => void }) {
     try {
       setLoading(true);
       const res = await axios.post(
-        "https://english-backend-uoic.onrender.com/api/ai",
+        "http://localhost:5000/api/ai",
         { ...form },
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -93,7 +93,7 @@ export function GenerateQuestionAI({ onSuccess }: { onSuccess?: () => void }) {
     }));
 
     try {
-      await axios.post("https://english-backend-uoic.onrender.com/api/questions/bulk", payload, {
+      await axios.post("http://localhost:5000/api/questions/bulk", payload, {
         headers: { Authorization: `Bearer ${token}` },
       });
       toast.success(`✅ Đã lưu ${payload.length} câu hỏi`);

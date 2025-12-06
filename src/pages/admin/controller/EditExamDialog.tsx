@@ -27,7 +27,7 @@ export default function EditExamDialog({ examId, onClose, onSuccess }: EditExamD
   useEffect(() => {
     const fetchExam = async () => {
       try {
-        const res = await axios.get(`https://english-backend-uoic.onrender.com/api/exams/${examId}`, {
+        const res = await axios.get(`http://localhost:5000/api/exams/${examId}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         setExam(res.data);
@@ -47,7 +47,7 @@ export default function EditExamDialog({ examId, onClose, onSuccess }: EditExamD
     try {
       setSaving(true);
       await axios.put(
-        `https://english-backend-uoic.onrender.com/api/exams/${examId}`,
+        `http://localhost:5000/api/exams/${examId}`,
         {
           title: exam.title,
           duration: exam.duration,

@@ -1,7 +1,7 @@
 // src/pages/ExamPage.tsx
 import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
-import axios from "axios";
+import api from "@/api/Api"; // ✅ dùng axios instance chung
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -22,7 +22,7 @@ import {
 // ================= CONFIG & TYPES =================
 
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "https://english-backend-uoic.onrender.com";
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 
 const resolveMediaUrl = (url?: string | null) => {
   if (!url) return "";
@@ -49,15 +49,15 @@ type AnswerValue = string | null | string[];
 
 type SpeakingRecording =
   | {
-    url: string;
-    blob: Blob;
-    uploaded?: boolean;
-    aiScore?: number | null;
-    aiLevel?: string | null;
-    aiFeedback?: string | null;
-    aiTranscript?: string | null;
-    aiMax?: number | null;
-  }
+      url: string;
+      blob: Blob;
+      uploaded?: boolean;
+      aiScore?: number | null;
+      aiLevel?: string | null;
+      aiFeedback?: string | null;
+      aiTranscript?: string | null;
+      aiMax?: number | null;
+    }
   | null;
 
 interface Question {
@@ -266,7 +266,7 @@ const ExamPage = ({ isMock = false }: ExamPageProps) => {
     if (!exam || showResult) return;
     try {
       const token = localStorage.getItem("token");
-      if (!token) return;
+      if (!token) return; // interceptor cũng sẽ xử lý 401
 
       const answersPayload = buildAnswersPayload(exam, answers);
 
@@ -278,9 +278,8 @@ const ExamPage = ({ isMock = false }: ExamPageProps) => {
         ...(isMock ? { mockExamId: exam._id } : { testId: exam._id }),
       };
 
-      await axios.post("/api/exam-progress/save", payload, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      // ❗ Đã chuyển sang dùng api instance (bắn lên backend)
+      await api.post("/exam-progress/save", payload);
     } catch (err) {
       console.error("Lỗi lưu trạng thái bài thi:", err);
     }
@@ -313,10 +312,9 @@ const ExamPage = ({ isMock = false }: ExamPageProps) => {
           return;
         }
 
-        const url = isMock ? `/api/mock-exams/${id}` : `/api/exams/${id}`;
-        const res = await axios.get(url, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const url = isMock ? `/mock-exams/${id}` : `/exams/${id}`;
+        // ❗ dùng api.get thay vì axios.get("/api/...")
+        const res = await api.get(url);
 
         const raw = isMock ? res.data.exam || res.data : res.data;
         const mappedQuestions = normalizeQuestions(raw.questions || []);
@@ -339,8 +337,8 @@ const ExamPage = ({ isMock = false }: ExamPageProps) => {
 
         let restored = false;
         try {
-          const progressRes = await axios.get("/api/exam-progress/by-exam", {
-            headers: { Authorization: `Bearer ${token}` },
+          // ❗ cũng dùng api.get
+          const progressRes = await api.get("/exam-progress/by-exam", {
             params: isMock
               ? { mockExamId: examData._id }
               : { testId: examData._id },
@@ -582,9 +580,9 @@ const ExamPage = ({ isMock = false }: ExamPageProps) => {
     try {
       setUploadingSpeaking(true);
 
-      const res = await axios.post("/api/speaking-attempts/ai", formData, {
+      // ❗ dùng api.post, interceptor tự gắn Authorization
+      const res = await api.post("/speaking-attempts/ai", formData, {
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "multipart/form-data",
         },
       });
@@ -626,24 +624,25 @@ const ExamPage = ({ isMock = false }: ExamPageProps) => {
 
         alert(
           `AI đã chấm Speaking:\n` +
-          `Điểm câu này: ${scoreStr}/${maxStr}\n\n` +
-          `Nhận xét: ${aiResult.feedback}\n\n` +
-          `Transcript AI nhận được:\n${transcriptFromAI || "(không có nội dung)"
-          }`
+            `Điểm câu này: ${scoreStr}/${maxStr}\n\n` +
+            `Nhận xét: ${aiResult.feedback}\n\n` +
+            `Transcript AI nhận được:\n${
+              transcriptFromAI || "(không có nội dung)"
+            }`
         );
       } else {
         alert(
           "Đã nộp audio, nhưng không lấy được điểm từ AI.\n\n" +
-          (transcriptFromAI
-            ? `Transcript AI nhận được:\n${transcriptFromAI}`
-            : "")
+            (transcriptFromAI
+              ? `Transcript AI nhận được:\n${transcriptFromAI}`
+              : "")
         );
       }
     } catch (err: any) {
       console.error("Speaking AI error:", err?.response?.data || err);
       alert(
         err?.response?.data?.message ||
-        JSON.stringify(err?.response?.data || "Lỗi khi nộp/chấm bài nói.")
+          JSON.stringify(err?.response?.data || "Lỗi khi nộp/chấm bài nói.")
       );
     } finally {
       setUploadingSpeaking(false);
@@ -678,14 +677,13 @@ const ExamPage = ({ isMock = false }: ExamPageProps) => {
     }
 
     try {
-
       setEvaluatingWriting(true);
 
-      const res = await axios.post(
-        "/api/ai/writing-eval",
-        { question: q.content, studentText },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      // ❗ dùng api.post
+      const res = await api.post("/ai/writing-eval", {
+        question: q.content,
+        studentText,
+      });
 
       const evaluation = res.data?.evaluation;
       if (!evaluation) {
@@ -721,22 +719,21 @@ const ExamPage = ({ isMock = false }: ExamPageProps) => {
         const copy = [...prev];
         copy[currentIndex] = {
           ...evaluation,
-          baseMaxScore: baseMax,          // max gốc của AI (thường 10)
-          maxScore: 1,                    // thang 0–1 nội bộ
-          normalizedScore,                // 0–1
+          baseMaxScore: baseMax, // max gốc của AI (thường 10)
+          maxScore: 1, // thang 0–1 nội bộ
+          normalizedScore, // 0–1
           examPoint: examPointForThisQuestion, // điểm thực tế câu này dùng cho đề
-          examMax: perQuestionMax,             // điểm tối đa của câu trong đề
+          examMax: perQuestionMax, // điểm tối đa của câu trong đề
         };
         return copy;
       });
-
 
       // hiển thị popup theo thang điểm của đề
       const suggestionsText =
         evaluation.suggestions && evaluation.suggestions.length
           ? "<ul style='margin-top:6px;padding-left:18px;text-align:left;'>" +
-          evaluation.suggestions.map((s: string) => `<li>${s}</li>`).join("") +
-          "</ul>"
+            evaluation.suggestions.map((s: string) => `<li>${s}</li>`).join("") +
+            "</ul>"
           : "";
 
       Swal.fire({
@@ -744,11 +741,12 @@ const ExamPage = ({ isMock = false }: ExamPageProps) => {
         icon: "success",
         html: `
           <p><b>Điểm câu này (tính vào bài thi):</b> ${examPointForThisQuestion.toFixed(
-          2
-        )}/${perQuestionMax.toFixed(2)}</p>
-          ${suggestionsText
-            ? `<p style="margin-top:8px;"><b>Gợi ý cải thiện:</b></p>${suggestionsText}`
-            : ""
+            2
+          )}/${perQuestionMax.toFixed(2)}</p>
+          ${
+            suggestionsText
+              ? `<p style="margin-top:8px;"><b>Gợi ý cải thiện:</b></p>${suggestionsText}`
+              : ""
           }
         `,
         confirmButtonText: "OK",
@@ -775,9 +773,9 @@ const ExamPage = ({ isMock = false }: ExamPageProps) => {
     const questionCount = exam.questions.length || 1;
     const perQuestionMax = 10 / questionCount; // điểm tối đa mỗi câu
 
-    let raw = 0;                // tổng điểm thực tế (0–10)
-    let autoCorrectLocal = 0;   // đếm số item đúng (để hiển thị)
-    let autoMaxLocal = 0;       // tổng số item auto chấm
+    let raw = 0; // tổng điểm thực tế (0–10)
+    let autoCorrectLocal = 0; // đếm số item đúng (để hiển thị)
+    let autoMaxLocal = 0; // tổng số item auto chấm
 
     exam.questions.forEach((q, idx) => {
       // ===== reading_cloze: chia điểm câu này cho từng blank =====
@@ -857,8 +855,8 @@ const ExamPage = ({ isMock = false }: ExamPageProps) => {
               typeof ev.baseMaxScore === "number" && ev.baseMaxScore > 0
                 ? ev.baseMaxScore
                 : typeof ev.maxScore === "number" && ev.maxScore > 0
-                  ? ev.maxScore
-                  : 10;
+                ? ev.maxScore
+                : 10;
             normalized = ev.overallScore / baseMax; // chuẩn hoá về 0–1
           }
         }
@@ -887,7 +885,6 @@ const ExamPage = ({ isMock = false }: ExamPageProps) => {
 
     return { raw, max, autoCorrect: autoCorrectLocal, autoMax: autoMaxLocal };
   };
-
 
   const buildSpeakingSummary = () => {
     if (!exam) return [];
@@ -956,9 +953,9 @@ const ExamPage = ({ isMock = false }: ExamPageProps) => {
 
         return {
           ...item,
-          aiScore: overall,         // backend sẽ đọc ở đây
-          aiMax: baseMax,           // backend sẽ dùng để scale
-          writingEval: ev,          // để lưu kèm, FE có thể show chi tiết
+          aiScore: overall, // backend sẽ đọc ở đây
+          aiMax: baseMax, // backend sẽ dùng để scale
+          writingEval: ev, // để lưu kèm, FE có thể show chi tiết
         };
       });
 
@@ -976,15 +973,13 @@ const ExamPage = ({ isMock = false }: ExamPageProps) => {
         ...(isMock ? { mockExamId: exam._id } : { testId: exam._id }),
       };
 
-      await axios.post("/api/results", payload, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      // ❗ dùng api.post
+      await api.post("/results", payload);
 
       try {
-        await axios.post(
-          "/api/exam-progress/finish",
-          isMock ? { mockExamId: exam._id } : { testId: exam._id },
-          { headers: { Authorization: `Bearer ${token}` } }
+        await api.post(
+          "/exam-progress/finish",
+          isMock ? { mockExamId: exam._id } : { testId: exam._id }
         );
       } catch (err) {
         console.warn("Không xoá được exam-progress sau khi nộp:", err);
@@ -993,7 +988,6 @@ const ExamPage = ({ isMock = false }: ExamPageProps) => {
       console.error("Lỗi lưu kết quả vào /api/results:", err);
     }
   };
-
 
   const gradeExam = async () => {
     if (!exam) return;
@@ -1017,14 +1011,13 @@ const ExamPage = ({ isMock = false }: ExamPageProps) => {
       state: {
         exam,
         answers,
-        score10,       // vẫn truyền, nhưng ReviewPage sẽ tự tính lại
+        score10, // vẫn truyền, nhưng ReviewPage sẽ tự tính lại
         correctCount,
         timeUsed,
         speakingSummary,
         writingEvaluations, // mảng cùng length với questions
       },
     });
-
   };
 
   const handleNext = () => {
@@ -1100,10 +1093,11 @@ const ExamPage = ({ isMock = false }: ExamPageProps) => {
                 {percentage.toFixed(0)}%
               </p>
               <span
-                className={`mt-2 inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${isPassed
-                  ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                  : "bg-rose-50 text-rose-700 border border-rose-200"
-                  }`}
+                className={`mt-2 inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
+                  isPassed
+                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                    : "bg-rose-50 text-rose-700 border border-rose-200"
+                }`}
               >
                 {isPassed ? "Đạt yêu cầu" : "Chưa đạt"}
               </span>
@@ -1147,6 +1141,7 @@ const ExamPage = ({ isMock = false }: ExamPageProps) => {
       </div>
     );
   }
+
 
   // ================= RENDER MAIN =================
 
