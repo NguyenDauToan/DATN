@@ -11,7 +11,7 @@ import { Eye, EyeOff, GraduationCap } from "lucide-react";
 import type { LoginResponse } from "@/api/Api";
 
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+  import.meta.env.VITE_API_BASE_URL || "https://english-backend-uoic.onrender.com";
 
 type School = { _id: string; name: string; code?: string };
 type Classroom = { _id: string; name: string; code?: string };
@@ -205,8 +205,8 @@ export default function LoginPage() {
   // ngay dưới useEffect login-no-scroll của bạn
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
-      // message được gửi từ backend (http://localhost:5000)
-      if (event.origin !== "http://localhost:5000") return;
+      // message được gửi từ backend (https://english-backend-uoic.onrender.com)
+      if (event.origin !== "https://english-backend-uoic.onrender.com") return;
 
       const data = event.data || {};
 
@@ -269,7 +269,7 @@ export default function LoginPage() {
       classroomId && params.append("classroomId", classroomId);
     }
 
-    const url = `http://localhost:5000/api/auth/google${params.toString() ? `?${params.toString()}` : ""
+    const url = `https://english-backend-uoic.onrender.com/api/auth/google${params.toString() ? `?${params.toString()}` : ""
       }`;
 
     window.open(

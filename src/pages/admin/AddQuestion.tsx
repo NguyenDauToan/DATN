@@ -84,7 +84,7 @@ export function AddQuestionDialog({ onSuccess }: { onSuccess?: () => void }) {
     try {
       setAudioUploading(true);
       const res = await axios.post(
-        "http://localhost:5000/api/questions/upload-audio",
+        "https://english-backend-uoic.onrender.com/api/questions/upload-audio",
         formData,
         {
           headers: {
@@ -231,7 +231,7 @@ export function AddQuestionDialog({ onSuccess }: { onSuccess?: () => void }) {
 
       try {
         setLoading(true);
-        await axios.post("http://localhost:5000/api/questions", payload, {
+        await axios.post("https://english-backend-uoic.onrender.com/api/questions", payload, {
           headers: { Authorization: `Bearer ${token}` },
         });
 
@@ -284,7 +284,7 @@ export function AddQuestionDialog({ onSuccess }: { onSuccess?: () => void }) {
 
       try {
         setLoading(true);
-        await axios.post("http://localhost:5000/api/questions", payload, {
+        await axios.post("https://english-backend-uoic.onrender.com/api/questions", payload, {
           headers: { Authorization: `Bearer ${token}` },
         });
 
@@ -330,7 +330,7 @@ export function AddQuestionDialog({ onSuccess }: { onSuccess?: () => void }) {
 
       try {
         setLoading(true);
-        await axios.post("http://localhost:5000/api/questions", payload, {
+        await axios.post("https://english-backend-uoic.onrender.com/api/questions", payload, {
           headers: { Authorization: `Bearer ${token}` },
         });
         toast.success("Thêm câu Speaking thành công");
@@ -370,7 +370,7 @@ export function AddQuestionDialog({ onSuccess }: { onSuccess?: () => void }) {
 
         try {
           setLoading(true);
-          await axios.post("http://localhost:5000/api/questions", payload, {
+          await axios.post("https://english-backend-uoic.onrender.com/api/questions", payload, {
             headers: { Authorization: `Bearer ${token}` },
           });
           toast.success("Thêm câu Writing (viết đoạn văn) thành công");
@@ -403,7 +403,7 @@ export function AddQuestionDialog({ onSuccess }: { onSuccess?: () => void }) {
 
       try {
         setLoading(true);
-        await axios.post("http://localhost:5000/api/questions", payload, {
+        await axios.post("https://english-backend-uoic.onrender.com/api/questions", payload, {
           headers: { Authorization: `Bearer ${token}` },
         });
         toast.success("Thêm câu Writing thành công");
@@ -438,7 +438,7 @@ export function AddQuestionDialog({ onSuccess }: { onSuccess?: () => void }) {
 
     try {
       setLoading(true);
-      await axios.post("http://localhost:5000/api/questions", payload, {
+      await axios.post("https://english-backend-uoic.onrender.com/api/questions", payload, {
         headers: { Authorization: `Bearer ${token}` },
       });
       toast.success("Thêm câu hỏi thành công 🎉");
@@ -1003,7 +1003,7 @@ export function ImportExcelDialog({ onSuccess }: { onSuccess?: () => void }) {
     try {
       setLoading(true);
       const res = await axios.post(
-        "http://localhost:5000/api/questions/import",
+        "https://english-backend-uoic.onrender.com/api/questions/import",
         formData,
         {
           headers: {
@@ -1032,7 +1032,7 @@ export function ImportExcelDialog({ onSuccess }: { onSuccess?: () => void }) {
     const token = localStorage.getItem("token");
     try {
       const res = await axios.get(
-        "http://localhost:5000/api/questions/import/template",
+        "https://english-backend-uoic.onrender.com/api/questions/import/template",
         {
           headers: { Authorization: `Bearer ${token}` },
           responseType: "blob",

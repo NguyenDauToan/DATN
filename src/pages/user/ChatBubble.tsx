@@ -295,7 +295,7 @@ export default function ChatBubble() {
 
   // 👇 KẾT NỐI SOCKET + JOIN ROOM THEO userId
   useEffect(() => {
-    const s = io("http://localhost:5000", {
+    const s = io("https://english-backend-uoic.onrender.com", {
       query: {
         token: localStorage.getItem("token") || "",
       },

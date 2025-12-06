@@ -12,7 +12,7 @@ export default defineConfig(({ mode }) => ({
     // ✅ Thêm proxy để chuyển tiếp API sang backend
     proxy: {
       "/api": {
-        target: "http://localhost:5000",
+        target: "https://english-backend-uoic.onrender.com",
         changeOrigin: true,
       },
     },

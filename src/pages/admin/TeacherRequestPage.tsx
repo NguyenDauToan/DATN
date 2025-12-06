@@ -24,7 +24,7 @@ import {
 import { toast } from "sonner";
 import { useAuth } from "@/data/AuthContext";
 const API_BASE_URL =
-    import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+    import.meta.env.VITE_API_BASE_URL || "https://english-backend-uoic.onrender.com";
 
 type Attachment = {
     fileName: string;
