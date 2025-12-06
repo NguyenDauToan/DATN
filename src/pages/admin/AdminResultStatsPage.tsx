@@ -23,7 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
 
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "https://english-backend-uoic.onrender.com";
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 
 type UserRole =
   | "admin"
@@ -50,8 +50,14 @@ type Classroom = {
   _id: string;
   name: string;
   code?: string;
-  school?: string;
+  school?: string | School;
+  homeroomTeacher?: {
+    _id: string;
+    name?: string;
+    email?: string;
+  } | null;
 };
+
 
 type PerTestStats = {
   testId: string;
@@ -265,14 +271,12 @@ export default function ResultStatsPage() {
         setError(null);
         setLoadingClasses(true);
     
-        // params chung
         const params: any = {
           schoolId: selectedSchoolId,
         };
     
-        // nếu chọn 1 năm cụ thể thì gửi kèm schoolYearId
         if (selectedYear !== "all") {
-          params.schoolYearId = selectedYear; // chính là _id của SchoolYear
+          params.schoolYearId = selectedYear;
         }
     
         const res = await axiosAuth.get<{ classrooms: Classroom[] }>(
@@ -280,21 +284,31 @@ export default function ResultStatsPage() {
           { params }
         );
     
-        const list = res.data.classrooms || [];
+        let list = res.data.classrooms || [];
+    
+        // 👇 GIỚI HẠN LỚP CHO GIÁO VIÊN
+        if (isTeacher && user?._id) {
+          const meId = (user as any)._id;
+          list = list.filter(
+            (c) => c.homeroomTeacher && (c.homeroomTeacher as any)._id === meId
+          );
+        }
     
         if (list.length === 0) {
           setClassrooms([]);
           setSelectedClassroomId("");
-          // thông báo nhẹ nếu muốn
-          // setError("Trường / năm học hiện chưa có lớp nào.");
+    
+          if (isTeacher) {
+            setError("Bạn chưa được gán làm giáo viên cho lớp nào trong trường / năm này.");
+          }
         } else {
           setClassrooms(list);
     
-          // Giáo viên: auto chọn lớp đầu tiên
           if (isTeacher) {
+            // Giáo viên: auto chọn lớp đầu tiên trong các lớp của mình
             setSelectedClassroomId(list[0]._id);
           } else {
-            // Admin / school_manager: để rỗng, user tự chọn
+            // Admin / school_manager: giữ lựa chọn cũ nếu còn tồn tại
             setSelectedClassroomId((prev) =>
               prev && list.some((c) => c._id === prev) ? prev : ""
             );

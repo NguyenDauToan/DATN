@@ -57,10 +57,28 @@ type AnswerValue = string | string[] | null;
 interface ReviewLocationState {
   exam: ExamData;
   answers: AnswerValue[];
-  score10: number; // thang 10
-  correctCount: number; // số item đúng (câu + subQuestion)
+  score10: number;        // thang 10 từ ExamPage (sẽ không dùng trực tiếp nữa)
+  correctCount: number;   // số item đúng tự chấm (trắc nghiệm, cloze, fill, order)
   timeUsed: number;
+  speakingSummary?: {
+    questionId: string;
+    score: number;
+    maxScore: number;
+    level?: string | null;
+    feedback?: string;
+    transcript?: string;
+  }[];
+  writingEvaluations?: {
+    overallScore?: number;
+    maxScore?: number;      // ở ExamPage bạn đang set = 1
+    baseMaxScore?: number;  // max gốc của AI (thường 10)
+    normalizedScore?: number; // 0–1, mỗi câu tối đa 1 điểm
+    [key: string]: any;
+  }[];
 }
+
+const formatScore10 = (score: number) =>
+  (Math.floor(score * 100) / 100).toFixed(2);
 
 // ===== Helpers =====
 const normalizeText = (text: string) =>
@@ -108,9 +126,104 @@ const ExamReviewPage = () => {
     );
   }
 
-  const { exam, answers, score10, correctCount, timeUsed } = state;
+  const { exam, answers, score10: initialScore10, correctCount, timeUsed, speakingSummary = [], writingEvaluations = [] } = state;
 
   // ===== Tổng số item chấm đúng/sai (giống autoMax bên ExamPage) =====
+
+  // ===== Tính điểm tổng (bao gồm Speaking + Writing AI) =====
+  const fullScore = useMemo(() => {
+    let raw = 0;     // điểm thô (bao gồm trắc nghiệm + AI)
+    let max = 0;     // tổng điểm tối đa
+
+    exam.questions.forEach((q, idx) => {
+      const ans = answers[idx];
+
+      // 1) reading_cloze: mỗi sub = 1 điểm, tự chấm
+      if (q.type === "reading_cloze" && q.subQuestions?.length) {
+        const subAns = Array.isArray(ans) ? (ans as string[]) : [];
+        q.subQuestions.forEach((sub, subIdx) => {
+          const user = (subAns[subIdx] || "").trim().toLowerCase();
+          const corr =
+            (sub.options?.[sub.correctIndex] || "").trim().toLowerCase();
+
+          max += 1;
+          if (user && user === corr) raw += 1;
+        });
+        return;
+      }
+
+      // 2) writing_sentence_order: 1 điểm, tự chấm
+      if (q.type === "writing_sentence_order") {
+        max += 1;
+        const userSentence = getWritingUserSentence(ans);
+        const correctSentence = String(q.answer || "");
+        const userNorm = normalizeSentence(userSentence);
+        const correctNorm = normalizeSentence(correctSentence);
+        if (userNorm && userNorm === correctNorm) raw += 1;
+        return;
+      }
+
+      // 3) speaking: dùng điểm AI (score, maxScore)
+      if (q.type === "speaking") {
+        const sum = speakingSummary.find((s) => s.questionId === q._id);
+        if (sum && typeof sum.maxScore === "number" && sum.maxScore > 0) {
+          const maxQ = sum.maxScore;
+          const scoreQ = typeof sum.score === "number" ? sum.score : 0;
+          max += maxQ;
+          raw += Math.max(0, Math.min(maxQ, scoreQ)); // clamp
+        }
+        return;
+      }
+
+      // 4) writing_paragraph: dùng normalizedScore, mỗi câu tối đa 1
+      if (q.type === "writing_paragraph") {
+        const ev = writingEvaluations[idx];
+        if (ev) {
+          let normalized: number | null = null;
+
+          if (typeof ev.normalizedScore === "number") {
+            normalized = ev.normalizedScore;
+          } else if (typeof ev.overallScore === "number") {
+            const baseMax =
+              typeof ev.baseMaxScore === "number" && ev.baseMaxScore > 0
+                ? ev.baseMaxScore
+                : typeof ev.maxScore === "number" && ev.maxScore > 0
+                  ? ev.maxScore
+                  : 10;
+            normalized = ev.overallScore / baseMax;
+          }
+
+          max += 1;
+          if (
+            typeof normalized === "number" &&
+            Number.isFinite(normalized)
+          ) {
+            raw += Math.max(0, Math.min(1, normalized));
+          }
+        }
+        return;
+      }
+
+      // 5) multiple_choice, true_false, fill_blank: mỗi câu = 1 điểm, tự chấm
+      if (
+        q.type === "multiple_choice" ||
+        q.type === "true_false" ||
+        q.type === "fill_blank"
+      ) {
+        max += 1;
+        const userNorm = normalizeText((ans ?? "").toString());
+        const correctNorm = normalizeText(String(q.answer ?? ""));
+        if (userNorm && userNorm === correctNorm) raw += 1;
+        return;
+      }
+    });
+
+    const score10 = max > 0 ? (raw / max) * 10 : 0;
+
+    return { raw, max, score10 };
+  }, [exam.questions, answers, speakingSummary, writingEvaluations]);
+
+  const finalScore10 = fullScore.score10;
   const totalItems = useMemo(
     () =>
       exam.questions.reduce((sum, q) => {
@@ -131,12 +244,10 @@ const ExamReviewPage = () => {
   );
 
   const totalPoints = totalItems;
-  const percentage = totalPoints > 0 ? (correctCount / totalPoints) * 100 : 0;
-  const passed = percentage >= 50; // hoặc score10 >= 5
+  const passed = finalScore10 >= 5;
 
   const usedMinutes = Math.floor(timeUsed / 60);
   const usedSeconds = timeUsed % 60;
-
   // ===== Điểm theo kỹ năng =====
   const skillStats = useMemo(() => {
     const stats: Record<SkillKey, SkillStats> = {
@@ -284,25 +395,24 @@ const ExamReviewPage = () => {
               Thời gian làm bài: {usedMinutes} phút {usedSeconds} giây
             </div>
             <div>
-              Đúng {correctCount}/{totalPoints} • {percentage.toFixed(0)}%
+              Điểm: {formatScore10(finalScore10)}/10 · {correctCount}/{totalPoints} câu đúng
             </div>
           </div>
+
         </div>
 
         {/* Result Summary */}
         <Card
-          className={`mb-2 ${
-            passed
-              ? "bg-gradient-to-r from-green-50 to-blue-50"
-              : "bg-gradient-to-r from-orange-50 to-red-50"
-          }`}
+          className={`mb-2 ${passed
+            ? "bg-gradient-to-r from-green-50 to-blue-50"
+            : "bg-gradient-to-r from-orange-50 to-red-50"
+            }`}
         >
           <CardHeader>
             <div className="text-center">
               <div
-                className={`inline-flex items-center justify-center w-20 h-20 rounded-full ${
-                  passed ? "bg-green-100" : "bg-orange-100"
-                } mb-4`}
+                className={`inline-flex items-center justify-center w-20 h-20 rounded-full ${passed ? "bg-green-100" : "bg-orange-100"
+                  } mb-4`}
               >
                 {passed ? (
                   <Trophy className="size-10 text-green-600" />
@@ -311,9 +421,8 @@ const ExamReviewPage = () => {
                 )}
               </div>
               <CardTitle
-                className={`mb-2 ${
-                  passed ? "text-green-600" : "text-orange-600"
-                }`}
+                className={`mb-2 ${passed ? "text-green-600" : "text-orange-600"
+                  }`}
               >
                 {passed
                   ? "Chúc mừng! Bạn đã hoàn thành bài kiểm tra"
@@ -324,13 +433,16 @@ const ExamReviewPage = () => {
           </CardHeader>
           <CardContent>
             <div className="text-center mb-6">
-              <p className="text-5xl mb-2">{percentage.toFixed(0)}%</p>
+              <p className="text-5xl mb-2">{formatScore10(finalScore10)}</p>
               <p className="text-gray-600 mb-4">
-                {score10.toFixed(1)}/10 điểm · {correctCount}/{totalPoints} câu
-                đúng
+                {formatScore10(finalScore10)}/10 điểm · {correctCount}/{totalPoints} câu đúng
               </p>
-              <Progress value={percentage} className="h-3 max-w-md mx-auto" />
+              <Progress
+                value={Math.max(0, Math.min(100, finalScore10 * 10))}
+                className="h-3 max-w-md mx-auto"
+              />
             </div>
+
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-2xl mx-auto">
               <div className="bg-white rounded-lg p-4 text-center">
@@ -521,10 +633,10 @@ const ExamReviewPage = () => {
                     ? "border-blue-200 bg-blue-50"
                     : "border-gray-200 bg-gray-50"
                   : isCorrect
-                  ? "border-green-200 bg-green-50"
-                  : isAnswered
-                  ? "border-red-200 bg-red-50"
-                  : "border-gray-200 bg-gray-50";
+                    ? "border-green-200 bg-green-50"
+                    : isAnswered
+                      ? "border-red-200 bg-red-50"
+                      : "border-gray-200 bg-gray-50";
 
                 return (
                   <div
@@ -534,17 +646,16 @@ const ExamReviewPage = () => {
                     <div className="flex items-start justify-between mb-3">
                       <div className="flex items-center gap-2">
                         <span
-                          className={`inline-flex items-center justify-center w-8 h-8 rounded-full ${
-                            isSubjective
-                              ? isAnswered
-                                ? "bg-blue-600 text-white"
-                                : "bg-gray-400 text-white"
-                              : isCorrect
+                          className={`inline-flex items-center justify-center w-8 h-8 rounded-full ${isSubjective
+                            ? isAnswered
+                              ? "bg-blue-600 text-white"
+                              : "bg-gray-400 text-white"
+                            : isCorrect
                               ? "bg-green-600 text-white"
                               : isAnswered
-                              ? "bg-red-600 text-white"
-                              : "bg-gray-400 text-white"
-                          }`}
+                                ? "bg-red-600 text-white"
+                                : "bg-gray-400 text-white"
+                            }`}
                         >
                           {index + 1}
                         </span>
@@ -578,18 +689,17 @@ const ExamReviewPage = () => {
                           const subCorrect =
                             user &&
                             user.trim().toLowerCase() ===
-                              correctOpt.trim().toLowerCase();
+                            correctOpt.trim().toLowerCase();
 
                           return (
                             <div
                               key={subIdx}
-                              className={`p-3 rounded-md border ${
-                                subCorrect
-                                  ? "border-green-200 bg-green-50"
-                                  : user
+                              className={`p-3 rounded-md border ${subCorrect
+                                ? "border-green-200 bg-green-50"
+                                : user
                                   ? "border-red-200 bg-red-50"
                                   : "border-gray-200 bg-white"
-                              }`}
+                                }`}
                             >
                               <div className="mb-2 flex items-center justify-between">
                                 <span className="text-sm font-medium text-gray-800">
@@ -600,8 +710,8 @@ const ExamReviewPage = () => {
                                   {subCorrect
                                     ? "Đúng"
                                     : user
-                                    ? "Sai"
-                                    : "Bỏ qua"}
+                                      ? "Sai"
+                                      : "Bỏ qua"}
                                 </span>
                               </div>
                               <div className="space-y-2">
@@ -616,13 +726,12 @@ const ExamReviewPage = () => {
                                   return (
                                     <div
                                       key={optIndex}
-                                      className={`p-2 rounded-lg border ${
-                                        isCorrectOpt
-                                          ? "border-green-600 bg-green-100"
-                                          : isUserOpt && !isCorrectOpt
+                                      className={`p-2 rounded-lg border ${isCorrectOpt
+                                        ? "border-green-600 bg-green-100"
+                                        : isUserOpt && !isCorrectOpt
                                           ? "border-red-600 bg-red-100"
                                           : "border-gray-200 bg-white"
-                                      }`}
+                                        }`}
                                     >
                                       <div className="flex items-center gap-2">
                                         {isCorrectOpt && (
@@ -669,13 +778,12 @@ const ExamReviewPage = () => {
                                 return (
                                   <div
                                     key={optIndex}
-                                    className={`p-3 rounded-lg border ${
-                                      isCorrectOpt
-                                        ? "border-green-600 bg-green-100"
-                                        : isUserOpt && !isCorrectOpt
+                                    className={`p-3 rounded-lg border ${isCorrectOpt
+                                      ? "border-green-600 bg-green-100"
+                                      : isUserOpt && !isCorrectOpt
                                         ? "border-red-600 bg-red-100"
                                         : "border-gray-200 bg-white"
-                                    }`}
+                                      }`}
                                   >
                                     <div className="flex items-center gap-2">
                                       {isCorrectOpt && (
@@ -703,41 +811,40 @@ const ExamReviewPage = () => {
                         {/* Fill blank + writing_sentence_order */}
                         {(q.type === "fill_blank" ||
                           q.type === "writing_sentence_order") && (
-                          <div className="space-y-2">
-                            <div
-                              className={`p-3 rounded-lg border ${
-                                !isAnswered
+                            <div className="space-y-2">
+                              <div
+                                className={`p-3 rounded-lg border ${!isAnswered
                                   ? "border-gray-200 bg-white"
                                   : isCorrect
-                                  ? "border-green-600 bg-green-100"
-                                  : "border-red-600 bg-red-100"
-                              }`}
-                            >
-                              <p className="text-sm text-gray-600 mb-1">
-                                Câu trả lời của bạn:
-                              </p>
-                              <p
-                                className={
-                                  isCorrect
-                                    ? "text-green-700"
-                                    : "text-red-700"
-                                }
+                                    ? "border-green-600 bg-green-100"
+                                    : "border-red-600 bg-red-100"
+                                  }`}
                               >
-                                {isAnswered
-                                  ? studentAnswerDisplay
-                                  : "(Chưa trả lời)"}
-                              </p>
-                            </div>
-                            {!isCorrect && (
-                              <div className="p-3 rounded-lg border border-green-600 bg-green-100">
                                 <p className="text-sm text-gray-600 mb-1">
-                                  Đáp án đúng:
+                                  Câu trả lời của bạn:
                                 </p>
-                                <p className="text-green-700">{q.answer}</p>
+                                <p
+                                  className={
+                                    isCorrect
+                                      ? "text-green-700"
+                                      : "text-red-700"
+                                  }
+                                >
+                                  {isAnswered
+                                    ? studentAnswerDisplay
+                                    : "(Chưa trả lời)"}
+                                </p>
                               </div>
-                            )}
-                          </div>
-                        )}
+                              {!isCorrect && (
+                                <div className="p-3 rounded-lg border border-green-600 bg-green-100">
+                                  <p className="text-sm text-gray-600 mb-1">
+                                    Đáp án đúng:
+                                  </p>
+                                  <p className="text-green-700">{q.answer}</p>
+                                </div>
+                              )}
+                            </div>
+                          )}
 
                         {/* Writing paragraph */}
                         {q.type === "writing_paragraph" && (

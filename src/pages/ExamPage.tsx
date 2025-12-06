@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import Swal from "sweetalert2";
 import {
   CheckCircle2,
   XCircle,
@@ -21,7 +22,7 @@ import {
 // ================= CONFIG & TYPES =================
 
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "https://english-backend-uoic.onrender.com";
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 
 const resolveMediaUrl = (url?: string | null) => {
   if (!url) return "";
@@ -48,15 +49,15 @@ type AnswerValue = string | null | string[];
 
 type SpeakingRecording =
   | {
-      url: string;
-      blob: Blob;
-      uploaded?: boolean;
-      aiScore?: number | null;
-      aiLevel?: string | null;
-      aiFeedback?: string | null;
-      aiTranscript?: string | null;
-      aiMax?: number | null;
-    }
+    url: string;
+    blob: Blob;
+    uploaded?: boolean;
+    aiScore?: number | null;
+    aiLevel?: string | null;
+    aiFeedback?: string | null;
+    aiTranscript?: string | null;
+    aiMax?: number | null;
+  }
   | null;
 
 interface Question {
@@ -625,25 +626,24 @@ const ExamPage = ({ isMock = false }: ExamPageProps) => {
 
         alert(
           `AI đã chấm Speaking:\n` +
-            `Điểm câu này: ${scoreStr}/${maxStr}\n\n` +
-            `Nhận xét: ${aiResult.feedback}\n\n` +
-            `Transcript AI nhận được:\n${
-              transcriptFromAI || "(không có nội dung)"
-            }`
+          `Điểm câu này: ${scoreStr}/${maxStr}\n\n` +
+          `Nhận xét: ${aiResult.feedback}\n\n` +
+          `Transcript AI nhận được:\n${transcriptFromAI || "(không có nội dung)"
+          }`
         );
       } else {
         alert(
           "Đã nộp audio, nhưng không lấy được điểm từ AI.\n\n" +
-            (transcriptFromAI
-              ? `Transcript AI nhận được:\n${transcriptFromAI}`
-              : "")
+          (transcriptFromAI
+            ? `Transcript AI nhận được:\n${transcriptFromAI}`
+            : "")
         );
       }
     } catch (err: any) {
       console.error("Speaking AI error:", err?.response?.data || err);
       alert(
         err?.response?.data?.message ||
-          JSON.stringify(err?.response?.data || "Lỗi khi nộp/chấm bài nói.")
+        JSON.stringify(err?.response?.data || "Lỗi khi nộp/chấm bài nói.")
       );
     } finally {
       setUploadingSpeaking(false);
@@ -657,85 +657,137 @@ const ExamPage = ({ isMock = false }: ExamPageProps) => {
 
     const studentText = (answers[currentIndex] as string) || "";
     if (!studentText.trim()) {
-      alert("Bạn chưa nhập đoạn văn.");
+      Swal.fire({
+        title: "Chưa có bài viết",
+        text: "Bạn chưa nhập đoạn văn.",
+        icon: "warning",
+        confirmButtonText: "OK",
+      });
       return;
     }
 
     const token = localStorage.getItem("token");
     if (!token) {
-      alert("Bạn cần đăng nhập lại.");
+      Swal.fire({
+        title: "Cần đăng nhập",
+        text: "Bạn cần đăng nhập lại.",
+        icon: "warning",
+        confirmButtonText: "OK",
+      });
       return;
     }
 
     try {
+
       setEvaluatingWriting(true);
 
       const res = await axios.post(
         "/api/ai/writing-eval",
-        {
-          question: q.content,
-          studentText,
-        },
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
+        { question: q.content, studentText },
+        { headers: { Authorization: `Bearer ${token}` } }
       );
 
       const evaluation = res.data?.evaluation;
       if (!evaluation) {
-        alert("Không nhận được dữ liệu chấm từ AI.");
+        Swal.fire({
+          title: "Lỗi",
+          text: "Không nhận được dữ liệu chấm từ AI.",
+          icon: "error",
+          confirmButtonText: "OK",
+        });
         return;
       }
 
+      // max gốc của AI (thường là 10)
+      const baseMax =
+        typeof evaluation.maxScore === "number" && evaluation.maxScore > 0
+          ? evaluation.maxScore
+          : 10;
+
+      // chuẩn hoá về 0–1
+      const normalizedScore =
+        typeof evaluation.overallScore === "number" && baseMax > 0
+          ? Math.max(0, Math.min(1, evaluation.overallScore / baseMax))
+          : null;
+
+      // điểm tối đa mỗi câu theo đề (10 / số câu)
+      const questionCount = exam.questions.length || 1;
+      const perQuestionMax = 10 / questionCount;
+      const examPointForThisQuestion =
+        normalizedScore != null ? normalizedScore * perQuestionMax : 0;
+
+      // lưu vào state để gradeExam() dùng
       setWritingEvaluations((prev) => {
         const copy = [...prev];
         copy[currentIndex] = {
           ...evaluation,
-          maxScore:
-            typeof evaluation.maxScore === "number"
-              ? evaluation.maxScore
-              : 10,
+          baseMaxScore: baseMax,          // max gốc của AI (thường 10)
+          maxScore: 1,                    // thang 0–1 nội bộ
+          normalizedScore,                // 0–1
+          examPoint: examPointForThisQuestion, // điểm thực tế câu này dùng cho đề
+          examMax: perQuestionMax,             // điểm tối đa của câu trong đề
         };
         return copy;
       });
 
-      if (typeof evaluation.overallScore === "number") {
-        alert(
-          `AI đã chấm Writing:\n` +
-            `Điểm: ${evaluation.overallScore.toFixed(1)}/${
-              evaluation.maxScore ?? 10
-            }\n\n` +
-            (evaluation.level ? `Mức độ: ${evaluation.level}\n\n` : "") +
-            (evaluation.suggestions && evaluation.suggestions.length
-              ? `Gợi ý:\n- ${evaluation.suggestions.join("\n- ")}`
-              : "")
-        );
-      }
+
+      // hiển thị popup theo thang điểm của đề
+      const suggestionsText =
+        evaluation.suggestions && evaluation.suggestions.length
+          ? "<ul style='margin-top:6px;padding-left:18px;text-align:left;'>" +
+          evaluation.suggestions.map((s: string) => `<li>${s}</li>`).join("") +
+          "</ul>"
+          : "";
+
+      Swal.fire({
+        title: "AI đã chấm Writing",
+        icon: "success",
+        html: `
+          <p><b>Điểm câu này (tính vào bài thi):</b> ${examPointForThisQuestion.toFixed(
+          2
+        )}/${perQuestionMax.toFixed(2)}</p>
+          ${suggestionsText
+            ? `<p style="margin-top:8px;"><b>Gợi ý cải thiện:</b></p>${suggestionsText}`
+            : ""
+          }
+        `,
+        confirmButtonText: "OK",
+      });
     } catch (err: any) {
       console.error("Writing eval error:", err?.response?.data || err);
-      alert(
-        err?.response?.data?.message ||
-          "Lỗi khi chấm bài viết Writing bằng AI."
-      );
+      Swal.fire({
+        title: "Lỗi",
+        text:
+          err?.response?.data?.message ||
+          "Lỗi khi chấm bài viết Writing bằng AI.",
+        icon: "error",
+        confirmButtonText: "OK",
+      });
     } finally {
+      // đảm bảo nút “Chấm AI” được bật lại và state đã update
       setEvaluatingWriting(false);
     }
   };
 
   const calculateScore = () => {
-    if (!exam) return { raw: 0, max: 0, autoCorrect: 0, autoMax: 0 };
+    if (!exam) return { raw: 0, max: 10, autoCorrect: 0, autoMax: 0 };
 
-    let raw = 0;
-    let max = 0;
-    let autoCorrectLocal = 0;
-    let autoMaxLocal = 0;
+    const questionCount = exam.questions.length || 1;
+    const perQuestionMax = 10 / questionCount; // điểm tối đa mỗi câu
+
+    let raw = 0;                // tổng điểm thực tế (0–10)
+    let autoCorrectLocal = 0;   // đếm số item đúng (để hiển thị)
+    let autoMaxLocal = 0;       // tổng số item auto chấm
 
     exam.questions.forEach((q, idx) => {
-      // reading_cloze
+      // ===== reading_cloze: chia điểm câu này cho từng blank =====
       if (q.type === "reading_cloze" && q.subQuestions?.length) {
         const ansArray = Array.isArray(answers[idx])
           ? (answers[idx] as string[])
           : [];
+
+        const subCount = q.subQuestions.length;
+        const perBlankMax = perQuestionMax / subCount;
 
         q.subQuestions.forEach((sub, subIdx) => {
           const correct = (sub.options?.[sub.correctIndex] ?? "")
@@ -743,11 +795,10 @@ const ExamPage = ({ isMock = false }: ExamPageProps) => {
             .toLowerCase();
           const user = (ansArray[subIdx] ?? "").trim().toLowerCase();
 
-          max += 1;
           autoMaxLocal += 1;
 
           if (correct && user === correct) {
-            raw += 1;
+            raw += perBlankMax;
             autoCorrectLocal += 1;
           }
         });
@@ -755,9 +806,8 @@ const ExamPage = ({ isMock = false }: ExamPageProps) => {
         return;
       }
 
-      // writing_sentence_order
+      // ===== writing_sentence_order =====
       if (q.type === "writing_sentence_order") {
-        max += 1;
         autoMaxLocal += 1;
 
         const tokens = getWritingTokens(q, answers[idx]);
@@ -769,59 +819,75 @@ const ExamPage = ({ isMock = false }: ExamPageProps) => {
           correctSentenceNorm &&
           userSentenceNorm === correctSentenceNorm
         ) {
-          raw += 1;
+          raw += perQuestionMax;
           autoCorrectLocal += 1;
         }
 
         return;
       }
 
-      // speaking (điểm theo AI)
+      // ===== speaking: dùng tỉ lệ aiScore/aiMax * perQuestionMax =====
       if (q.type === "speaking") {
         const rec = speakingRecordings[idx];
         const aiScore = rec?.aiScore ?? null;
         const aiMax = rec?.aiMax ?? 0;
 
-        if (aiMax > 0) {
-          max += aiMax;
-          if (aiScore != null) {
-            raw += aiScore;
-          }
+        if (aiMax > 0 && aiScore != null) {
+          const normalized = Math.max(
+            0,
+            Math.min(1, aiScore / aiMax)
+          ); // 0–1
+          raw += normalized * perQuestionMax;
         }
+
         return;
       }
 
-      // writing_paragraph (điểm theo AI writing)
+      // ===== writing_paragraph: dùng normalized * perQuestionMax =====
       if (q.type === "writing_paragraph") {
         const ev = writingEvaluations[idx];
-        const scoreForQ = ev?.overallScore ?? null;
-        const maxForQ =
-          typeof ev?.maxScore === "number" && ev.maxScore > 0
-            ? ev.maxScore
-            : 10;
 
-        max += maxForQ;
-        if (typeof scoreForQ === "number") {
-          raw += scoreForQ;
+        let normalized: number | null = null;
+
+        if (ev) {
+          if (typeof ev.normalizedScore === "number") {
+            normalized = ev.normalizedScore; // đã 0–1
+          } else if (typeof ev.overallScore === "number") {
+            const baseMax =
+              typeof ev.baseMaxScore === "number" && ev.baseMaxScore > 0
+                ? ev.baseMaxScore
+                : typeof ev.maxScore === "number" && ev.maxScore > 0
+                  ? ev.maxScore
+                  : 10;
+            normalized = ev.overallScore / baseMax; // chuẩn hoá về 0–1
+          }
         }
+
+        if (typeof normalized === "number" && Number.isFinite(normalized)) {
+          const safeNorm = Math.max(0, Math.min(1, normalized));
+          raw += safeNorm * perQuestionMax;
+        }
+
         return;
       }
 
-      // các dạng tự chấm đúng/sai: multiple_choice, true_false, fill_blank...
-      max += 1;
+      // ===== các dạng auto chấm khác: multiple_choice, true_false, fill_blank =====
       autoMaxLocal += 1;
 
       const userAnswer = normalizeText((answers[idx] ?? "").toString());
       const correctAnswer = normalizeText(String(q.answer ?? ""));
 
       if (userAnswer && userAnswer === correctAnswer) {
-        raw += 1;
+        raw += perQuestionMax;
         autoCorrectLocal += 1;
       }
     });
 
+    const max = 10; // tổng điểm tối đa của cả đề luôn là 10
+
     return { raw, max, autoCorrect: autoCorrectLocal, autoMax: autoMaxLocal };
   };
+
 
   const buildSpeakingSummary = () => {
     if (!exam) return [];
@@ -857,7 +923,45 @@ const ExamPage = ({ isMock = false }: ExamPageProps) => {
       const { raw, max, autoCorrect, autoMax } = calculateScore();
       const score10 = max > 0 ? (raw / max) * 10 : 0;
 
-      const answersPayload = buildAnswersPayload(exam, answers);
+      // 1. Build payload cơ bản (như cũ)
+      const baseAnswersPayload = buildAnswersPayload(exam, answers);
+
+      // 2. Gắn thêm điểm AI cho câu writing_paragraph
+      const answersPayload = baseAnswersPayload.map((item, idx) => {
+        const q = exam.questions[idx];
+
+        if (q.type !== "writing_paragraph") {
+          return item;
+        }
+
+        const ev = writingEvaluations[idx];
+        if (!ev) {
+          // chưa bấm "Chấm AI" -> coi như không có điểm, backend sẽ tính 0
+          return item;
+        }
+
+        // Điểm gốc trả về từ AI (thường 0–10)
+        const overall =
+          typeof ev.overallScore === "number" ? ev.overallScore : null;
+
+        // max gốc của AI (thường 10)
+        let baseMax: number | null = null;
+        if (typeof ev.baseMaxScore === "number" && ev.baseMaxScore > 0) {
+          baseMax = ev.baseMaxScore;
+        } else if (typeof ev.maxScore === "number" && ev.maxScore > 0) {
+          baseMax = ev.maxScore;
+        } else {
+          baseMax = 10;
+        }
+
+        return {
+          ...item,
+          aiScore: overall,         // backend sẽ đọc ở đây
+          aiMax: baseMax,           // backend sẽ dùng để scale
+          writingEval: ev,          // để lưu kèm, FE có thể show chi tiết
+        };
+      });
+
       const speakingSummary = buildSpeakingSummary();
 
       const payload: any = {
@@ -890,6 +994,7 @@ const ExamPage = ({ isMock = false }: ExamPageProps) => {
     }
   };
 
+
   const gradeExam = async () => {
     if (!exam) return;
 
@@ -906,15 +1011,20 @@ const ExamPage = ({ isMock = false }: ExamPageProps) => {
     const score10 = max > 0 ? (raw / max) * 10 : 0;
     const correctCount = autoCorrect;
 
+    const speakingSummary = buildSpeakingSummary();
+
     navigate(`/exams/${exam._id}/review`, {
       state: {
         exam,
         answers,
-        score10,
+        score10,       // vẫn truyền, nhưng ReviewPage sẽ tự tính lại
         correctCount,
         timeUsed,
+        speakingSummary,
+        writingEvaluations, // mảng cùng length với questions
       },
     });
+
   };
 
   const handleNext = () => {
@@ -990,11 +1100,10 @@ const ExamPage = ({ isMock = false }: ExamPageProps) => {
                 {percentage.toFixed(0)}%
               </p>
               <span
-                className={`mt-2 inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
-                  isPassed
-                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                    : "bg-rose-50 text-rose-700 border border-rose-200"
-                }`}
+                className={`mt-2 inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${isPassed
+                  ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                  : "bg-rose-50 text-rose-700 border border-rose-200"
+                  }`}
               >
                 {isPassed ? "Đạt yêu cầu" : "Chưa đạt"}
               </span>
@@ -1022,6 +1131,8 @@ const ExamPage = ({ isMock = false }: ExamPageProps) => {
                     score10,
                     correctCount,
                     timeUsed,
+                    speakingSummary: buildSpeakingSummary(),
+                    writingEvaluations,
                   },
                 })
               }
@@ -1129,11 +1240,10 @@ const ExamPage = ({ isMock = false }: ExamPageProps) => {
                       type="button"
                       variant={flags[currentIndex] ? "outline" : "ghost"}
                       size="icon"
-                      className={`h-8 w-8 rounded-full border ${
-                        flags[currentIndex]
-                          ? "border-amber-400 text-amber-700 bg-amber-50 hover:bg-amber-100"
-                          : "border-slate-200 text-slate-500 hover:bg-slate-50"
-                      }`}
+                      className={`h-8 w-8 rounded-full border ${flags[currentIndex]
+                        ? "border-amber-400 text-amber-700 bg-amber-50 hover:bg-amber-100"
+                        : "border-slate-200 text-slate-500 hover:bg-slate-50"
+                        }`}
                       onClick={toggleFlagCurrent}
                       title={
                         flags[currentIndex]
@@ -1147,11 +1257,10 @@ const ExamPage = ({ isMock = false }: ExamPageProps) => {
                 </div>
 
                 <CardTitle
-                  className={`mt-4 whitespace-pre-line leading-relaxed text-slate-900 font-normal ${
-                    question.type === "reading_cloze"
-                      ? "text-base md:text-lg"
-                      : "text-lg md:text-xl"
-                  }`}
+                  className={`mt-4 whitespace-pre-line leading-relaxed text-slate-900 font-normal ${question.type === "reading_cloze"
+                    ? "text-base md:text-lg"
+                    : "text-lg md:text-xl"
+                    }`}
                 >
                   {question.type === "reading_cloze" ? (
                     <div className="space-y-3">
@@ -1207,22 +1316,20 @@ const ExamPage = ({ isMock = false }: ExamPageProps) => {
                                     key={optIdx}
                                     type="button"
                                     variant={active ? "default" : "outline"}
-                                    className={`h-full w-full py-3 px-2 rounded-xl text-xs md:text-sm ${
-                                      active
-                                        ? "bg-slate-900 text-white border-slate-900"
-                                        : "bg-white hover:bg-slate-50 border-slate-200"
-                                    }`}
+                                    className={`h-full w-full py-3 px-2 rounded-xl text-xs md:text-sm ${active
+                                      ? "bg-slate-900 text-white border-slate-900"
+                                      : "bg-white hover:bg-slate-50 border-slate-200"
+                                      }`}
                                     onClick={() =>
                                       handleSelectSub(subIdx, opt)
                                     }
                                   >
                                     <span className="flex flex-row items-center justify-center gap-2">
                                       <span
-                                        className={`w-7 h-7 flex items-center justify-center rounded-full text-xs font-semibold ${
-                                          active
-                                            ? "bg-slate-800 text-white"
-                                            : "bg-slate-100 text-slate-700"
-                                        }`}
+                                        className={`w-7 h-7 flex items-center justify-center rounded-full text-xs font-semibold ${active
+                                          ? "bg-slate-800 text-white"
+                                          : "bg-slate-100 text-slate-700"
+                                          }`}
                                       >
                                         {String.fromCharCode(65 + optIdx)}
                                       </span>
@@ -1315,17 +1422,28 @@ const ExamPage = ({ isMock = false }: ExamPageProps) => {
                         <p className="text-xs font-semibold text-slate-700">
                           Kết quả chấm AI:
                         </p>
-                        <p className="text-xs text-slate-700">
-                          Điểm:{" "}
-                          <span className="font-semibold">
-                            {writingEvaluations[
-                              currentIndex
-                            ].overallScore?.toFixed(1) ?? "—"}
-                            /{writingEvaluations[currentIndex].maxScore ?? 10}
-                          </span>{" "}
-                          ({writingEvaluations[currentIndex].level || "N/A"})
-                        </p>
 
+                        {/* Điểm dùng để tính vào bài thi – cùng thang với Swal */}
+                        <p className="text-xs text-slate-700">
+                          {(() => {
+                            const ev = writingEvaluations[currentIndex];
+                            const examPoint: number | undefined = ev?.examPoint;
+                            const examMax: number =
+                              typeof ev?.examMax === "number" && ev.examMax > 0
+                                ? ev.examMax
+                                : 10 / exam.questions.length; // fallback
+
+                            return (
+                              <>
+                                Điểm câu này (tính vào bài thi):{" "}
+                                <span className="font-semibold">
+                                  {examPoint != null ? examPoint.toFixed(2) : "—"}/
+                                  {examMax.toFixed(2)}
+                                </span>
+                              </>
+                            );
+                          })()}
+                        </p>
                         <div className="space-y-1 text-[11px] text-slate-600">
                           <p className="font-semibold">
                             Đoạn văn gợi ý (đã chỉnh sửa):
@@ -1431,8 +1549,8 @@ const ExamPage = ({ isMock = false }: ExamPageProps) => {
                               ]?.aiScore?.toFixed(2)}
                               {speakingRecordings[currentIndex]?.aiMax != null
                                 ? `/${speakingRecordings[
-                                    currentIndex
-                                  ]?.aiMax!.toFixed(2)}`
+                                  currentIndex
+                                ]?.aiMax!.toFixed(2)}`
                                 : ""}
                             </span>{" "}
                             (
@@ -1478,20 +1596,18 @@ const ExamPage = ({ isMock = false }: ExamPageProps) => {
                             key={idx}
                             type="button"
                             variant={active ? "default" : "outline"}
-                            className={`justify-start text-left py-3.5 px-4 rounded-xl text-sm md:text-base ${
-                              active
-                                ? "bg-slate-900 text-white border-slate-900"
-                                : "bg-white hover:bg-slate-50 border-slate-200"
-                            }`}
+                            className={`justify-start text-left py-3.5 px-4 rounded-xl text-sm md:text-base ${active
+                              ? "bg-slate-900 text-white border-slate-900"
+                              : "bg-white hover:bg-slate-50 border-slate-200"
+                              }`}
                             onClick={() => handleSelect(opt)}
                           >
                             <span className="flex items-center gap-3">
                               <span
-                                className={`w-8 h-8 flex items-center justify-center rounded-full text-sm font-semibold ${
-                                  active
-                                    ? "bg-slate-800 text-white"
-                                    : "bg-slate-100 text-slate-700"
-                                }`}
+                                className={`w-8 h-8 flex items-center justify-center rounded-full text-sm font-semibold ${active
+                                  ? "bg-slate-800 text-white"
+                                  : "bg-slate-100 text-slate-700"
+                                  }`}
                               >
                                 {String.fromCharCode(65 + idx)}
                               </span>
@@ -1513,11 +1629,10 @@ const ExamPage = ({ isMock = false }: ExamPageProps) => {
                           ? "default"
                           : "outline"
                       }
-                      className={`py-3.5 rounded-xl text-sm md:text-base ${
-                        answers[currentIndex] === "true"
-                          ? "bg-emerald-600 text-white border-emerald-600"
-                          : "bg-white hover:bg-emerald-50 border-emerald-200"
-                      }`}
+                      className={`py-3.5 rounded-xl text-sm md:text-base ${answers[currentIndex] === "true"
+                        ? "bg-emerald-600 text-white border-emerald-600"
+                        : "bg-white hover:bg-emerald-50 border-emerald-200"
+                        }`}
                       onClick={() => handleSelect("true")}
                     >
                       <CheckCircle2 className="inline w-4 h-4 mr-2" /> Đúng
@@ -1529,11 +1644,10 @@ const ExamPage = ({ isMock = false }: ExamPageProps) => {
                           ? "default"
                           : "outline"
                       }
-                      className={`py-3.5 rounded-xl text-sm md:text-base ${
-                        answers[currentIndex] === "false"
-                          ? "bg-rose-600 text-white border-rose-600"
-                          : "bg-white hover:bg-rose-50 border-rose-200"
-                      }`}
+                      className={`py-3.5 rounded-xl text-sm md:text-base ${answers[currentIndex] === "false"
+                        ? "bg-rose-600 text-white border-rose-600"
+                        : "bg-white hover:bg-rose-50 border-rose-200"
+                        }`}
                       onClick={() => handleSelect("false")}
                     >
                       <XCircle className="inline w-4 h-4 mr-2" /> Sai
@@ -1635,11 +1749,10 @@ const ExamPage = ({ isMock = false }: ExamPageProps) => {
                   Thời gian còn lại
                 </span>
                 <span
-                  className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-mono border ${
-                    isCriticalTime
-                      ? "bg-rose-50 text-rose-700 border-rose-200"
-                      : "bg-slate-50 text-slate-700 border-slate-200"
-                  }`}
+                  className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-mono border ${isCriticalTime
+                    ? "bg-rose-50 text-rose-700 border-rose-200"
+                    : "bg-slate-50 text-slate-700 border-slate-200"
+                    }`}
                 >
                   <Clock className="w-4 h-4" />
                   {timeLeft !== null ? formatTime(timeLeft) : "--:--"}

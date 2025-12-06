@@ -248,7 +248,7 @@ function AddMockExamDialog({
     try {
       setLoadingSchoolYear(true);
       const res = await axios.get(
-        "https://english-backend-uoic.onrender.com/api/mock-exams/meta/current-year",
+        "http://localhost:5000/api/mock-exams/meta/current-year",
         {
           headers: { Authorization: `Bearer ${tokenLocal}` },
         }
@@ -340,7 +340,7 @@ function AddMockExamDialog({
 
     try {
       setLoadingQuestions(true);
-      const res = await axios.get("https://english-backend-uoic.onrender.com/api/questions/filter", {
+      const res = await axios.get("http://localhost:5000/api/questions/filter", {
         headers: { Authorization: `Bearer ${tokenLocal}` },
         params: { grade: queryGrade },
       });
@@ -369,7 +369,7 @@ function AddMockExamDialog({
 
     try {
       setLoadingSchools(true);
-      const res = await axios.get("https://english-backend-uoic.onrender.com/api/admin/schools", {
+      const res = await axios.get("http://localhost:5000/api/admin/schools", {
         headers: { Authorization: `Bearer ${tokenLocal}` },
       });
       const data: School[] = (res.data?.schools || res.data || []) as School[];
@@ -401,7 +401,7 @@ function AddMockExamDialog({
       }
 
       const res = await axios.get(
-        "https://english-backend-uoic.onrender.com/api/admin/classrooms",
+        "http://localhost:5000/api/admin/classrooms",
         {
           headers: { Authorization: `Bearer ${tokenLocal}` },
           params,
@@ -501,20 +501,31 @@ function AddMockExamDialog({
     let gradeKey: string | null = null;
     let scope: "class" | "grade";
 
-    if (form.classroomId) {
+    // GIÁO VIÊN: BẮT BUỘC PHẢI GẮN VỚI LỚP MÌNH
+    if (isTeacher) {
+      if (!form.classroomId) {
+        return toast.error("Giáo viên chỉ được tạo đề cho lớp mình giảng dạy. Vui lòng chọn lớp bạn phụ trách.");
+      }
       scope = "class";
       gradeKey =
         getGradeKeyFromClassroom() ||
-        (isTeacher && teacherGradeValue ? String(teacherGradeValue) : null);
+        (teacherGradeValue ? String(teacherGradeValue) : null);
     } else {
-      const _gradeKey = getGradeKeyFromExamKey(examKey);
-      if (!_gradeKey) {
-        return toast.error(
-          "Vui lòng chọn khối hợp lệ (Lớp 6–12, THPTQG) hoặc gắn đề với một lớp cụ thể."
-        );
+      // ADMIN / SCHOOL_MANAGER: GIỮ NG NGHIỆP VỤ CŨ
+      if (form.classroomId) {
+        scope = "class";
+        gradeKey =
+          getGradeKeyFromClassroom() || null;
+      } else {
+        const _gradeKey = getGradeKeyFromExamKey(examKey);
+        if (!_gradeKey) {
+          return toast.error(
+            "Vui lòng chọn khối hợp lệ (Lớp 6–12, THPTQG) hoặc gắn đề với một lớp cụ thể."
+          );
+        }
+        gradeKey = _gradeKey;
+        scope = "grade";
       }
-      gradeKey = _gradeKey;
-      scope = "grade";
     }
 
     let finalQuestionIds = selectedQuestionIds;
@@ -524,6 +535,7 @@ function AddMockExamDialog({
         return toast.error("Không tìm được câu hỏi phù hợp để tạo đề thi thử");
       }
     }
+
     const tokenLocal =
       typeof window !== "undefined" ? localStorage.getItem("token") : null;
     if (!tokenLocal) {
@@ -533,7 +545,7 @@ function AddMockExamDialog({
     try {
       setSubmitting(true);
       await axios.post(
-        "https://english-backend-uoic.onrender.com/api/mock-exams",
+        "http://localhost:5000/api/mock-exams",
         {
           name: form.name,
           examType: form.examType,
@@ -555,7 +567,9 @@ function AddMockExamDialog({
           headers: { Authorization: `Bearer ${tokenLocal}` },
         }
       );
-
+      window.dispatchEvent(
+        new CustomEvent("exam:created", { detail: { kind: "mock" as const } })
+      );
       toast.success("Tạo đề thi thử thành công");
       setOpen(false);
       resetForm();
@@ -571,28 +585,40 @@ function AddMockExamDialog({
     }
   };
 
+
   const handleAutoGenerate = async () => {
     let gradeKey: string | null = null;
     let scope: "class" | "grade";
 
-    if (form.classroomId) {
+    if (isTeacher) {
+      // GIÁO VIÊN: CHỈ ĐƯỢC TẠO ĐỀ THEO LỚP CỦA MÌNH
+      if (!form.classroomId) {
+        return toast.error("Giáo viên chỉ được tạo đề cho lớp mình giảng dạy. Vui lòng chọn lớp bạn phụ trách.");
+      }
       scope = "class";
       gradeKey =
         getGradeKeyFromClassroom() ||
-        (isTeacher && teacherGradeValue ? String(teacherGradeValue) : null);
+        (teacherGradeValue ? String(teacherGradeValue) : null);
     } else {
-      if (isTeacher && teacherGradeValue) {
-        scope = "grade";
-        gradeKey = String(teacherGradeValue);
+      // ADMIN / SCHOOL_MANAGER
+      if (form.classroomId) {
+        scope = "class";
+        gradeKey =
+          getGradeKeyFromClassroom() || null;
       } else {
-        const _gradeKey = getGradeKeyFromExamKey(examKey);
-        if (!_gradeKey) {
-          return toast.error(
-            "Vui lòng chọn khối hợp lệ (Lớp 6–12, THPTQG) hoặc gắn đề với một lớp cụ thể."
-          );
+        if (isTeacher && teacherGradeValue) {
+          scope = "grade";
+          gradeKey = String(teacherGradeValue);
+        } else {
+          const _gradeKey = getGradeKeyFromExamKey(examKey);
+          if (!_gradeKey) {
+            return toast.error(
+              "Vui lòng chọn khối hợp lệ (Lớp 6–12, THPTQG) hoặc gắn đề với một lớp cụ thể."
+            );
+          }
+          scope = "grade";
+          gradeKey = _gradeKey;
         }
-        scope = "grade";
-        gradeKey = _gradeKey;
       }
     }
 
@@ -616,7 +642,7 @@ function AddMockExamDialog({
     try {
       setSubmitting(true);
       await axios.post(
-        "https://english-backend-uoic.onrender.com/api/mock-exams/auto-generate",
+        "http://localhost:5000/api/mock-exams/auto-generate",
         {
           gradeKey,
           name: form.name?.trim() || undefined,
@@ -633,7 +659,9 @@ function AddMockExamDialog({
           headers: { Authorization: `Bearer ${tokenLocal}` },
         }
       );
-
+      window.dispatchEvent(
+        new CustomEvent("exam:created", { detail: { kind: "mock" as const } })
+      );
       toast.success("Đã tạo đề thi thử tự động từ ngân hàng câu hỏi");
       setOpen(false);
       resetForm();
@@ -648,6 +676,7 @@ function AddMockExamDialog({
       setSubmitting(false);
     }
   };
+
 
   const resetForm = () => {
     setExamKey("thptqg");
@@ -690,20 +719,30 @@ function AddMockExamDialog({
     let gradeKey: string | null = null;
     let scope: "class" | "grade";
 
-    if (form.classroomId) {
+    // GIÁO VIÊN: BẮT BUỘC PHẢI GẮN VỚI LỚP MÌNH
+    if (isTeacher) {
+      if (!form.classroomId) {
+        return toast.error("Giáo viên chỉ được tạo đề cho lớp mình giảng dạy. Vui lòng chọn lớp bạn phụ trách.");
+      }
       scope = "class";
       gradeKey =
         getGradeKeyFromClassroom() ||
-        (isTeacher && teacherGradeValue ? String(teacherGradeValue) : null);
+        (teacherGradeValue ? String(teacherGradeValue) : null);
     } else {
-      const _gradeKey = getGradeKeyFromExamKey(examKey);
-      if (!_gradeKey) {
-        return toast.error(
-          "Vui lòng chọn khối hợp lệ (Lớp 6–12, THPTQG) hoặc gắn đề với một lớp cụ thể."
-        );
+      if (form.classroomId) {
+        scope = "class";
+        gradeKey =
+          getGradeKeyFromClassroom() || null;
+      } else {
+        const _gradeKey = getGradeKeyFromExamKey(examKey);
+        if (!_gradeKey) {
+          return toast.error(
+            "Vui lòng chọn khối hợp lệ (Lớp 6–12, THPTQG) hoặc gắn đề với một lớp cụ thể."
+          );
+        }
+        gradeKey = _gradeKey;
+        scope = "grade";
       }
-      gradeKey = _gradeKey;
-      scope = "grade";
     }
 
     let finalQuestionIds = selectedQuestionIds;
@@ -724,7 +763,7 @@ function AddMockExamDialog({
     try {
       setSubmitting(true);
       await axios.post(
-        "https://english-backend-uoic.onrender.com/api/mock-exams",
+        "http://localhost:5000/api/mock-exams",
         {
           name: form.name,
           examType: form.examType,
@@ -769,6 +808,7 @@ function AddMockExamDialog({
       setSubmitting(false);
     }
   };
+
 
   return (
     <Dialog
@@ -1306,7 +1346,7 @@ export default function AdminMockExams() {
         return;
       }
 
-      const res = await axios.get("https://english-backend-uoic.onrender.com/api/mock-exams", {
+      const res = await axios.get("http://localhost:5000/api/mock-exams", {
         headers: { Authorization: `Bearer ${tokenLocal}` },
       });
 
@@ -1342,7 +1382,7 @@ export default function AdminMockExams() {
       setSelectedExam(null);
 
       const res = await axios.get(
-        `https://english-backend-uoic.onrender.com/api/mock-exams/${id}`,
+        `http://localhost:5000/api/mock-exams/${id}`,
         {
           headers: { Authorization: `Bearer ${tokenLocal}` },
         }
@@ -1412,7 +1452,7 @@ export default function AdminMockExams() {
       setEditSubmitting(true);
 
       await axios.put(
-        `https://english-backend-uoic.onrender.com/api/mock-exams/${editingExam._id}`,
+        `http://localhost:5000/api/mock-exams/${editingExam._id}`,
         {
           name: editingExam.name?.trim(),
           duration: editingExam.duration,
@@ -1519,7 +1559,7 @@ export default function AdminMockExams() {
 
     try {
       await axios.patch(
-        `https://english-backend-uoic.onrender.com/api/mock-exams/${id}/archive`,
+        `http://localhost:5000/api/mock-exams/${id}/archive`,
         null,
         {
           headers: { Authorization: `Bearer ${tokenLocal}` },
@@ -1675,7 +1715,7 @@ export default function AdminMockExams() {
               currentUser={currentUser}
             />
 
-        
+
           </div>
 
         </div>

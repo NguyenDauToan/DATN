@@ -101,7 +101,7 @@ export function GenerateExamAI({ onSuccess, children }: GenerateExamAIProps) {
     if (!token) return;
     try {
       setLoadingSchools(true);
-      const res = await axios.get("https://english-backend-uoic.onrender.com/api/admin/schools", {
+      const res = await axios.get("http://localhost:5000/api/admin/schools", {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data: School[] = (res.data?.schools || res.data || []) as School[];
@@ -124,7 +124,7 @@ export function GenerateExamAI({ onSuccess, children }: GenerateExamAIProps) {
     try {
       setLoadingClasses(true);
       const res = await axios.get(
-        "https://english-backend-uoic.onrender.com/api/admin/classrooms",
+        "http://localhost:5000/api/admin/classrooms",
         {
           headers: { Authorization: `Bearer ${token}` },
           params: { schoolId },
@@ -150,7 +150,7 @@ export function GenerateExamAI({ onSuccess, children }: GenerateExamAIProps) {
       setLoadingProfile(true);
       const headers = { Authorization: `Bearer ${token}` };
 
-      const res = await axios.get("https://english-backend-uoic.onrender.com/api/profile/me", {
+      const res = await axios.get("http://localhost:5000/api/profile/me", {
         headers,
       });
 
@@ -178,7 +178,7 @@ export function GenerateExamAI({ onSuccess, children }: GenerateExamAIProps) {
       } else if (user.role === "teacher") {
         // 1️⃣ giáo viên: lấy danh sách lớp mình phụ trách
         const resClasses = await axios.get(
-          "https://english-backend-uoic.onrender.com/api/admin/users/my-students/by-class",
+          "http://localhost:5000/api/admin/users/my-students/by-class",
           { headers }
         );
         const classesFromApi = resClasses.data?.classes || [];
@@ -213,7 +213,7 @@ export function GenerateExamAI({ onSuccess, children }: GenerateExamAIProps) {
   const loadCurrentSchoolYear = useCallback(async () => {
     if (!token) return;
     try {
-      const res = await axios.get("https://english-backend-uoic.onrender.com/api/admin/school-years", {
+      const res = await axios.get("http://localhost:5000/api/admin/school-years", {
         headers: { Authorization: `Bearer ${token}` },
       });
       const years: SchoolYear[] = res.data?.years || [];

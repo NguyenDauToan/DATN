@@ -37,7 +37,7 @@ import { Loader2, PlusCircle, Trash2, PencilLine } from "lucide-react";
 import { toast } from "sonner";
 
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "https://english-backend-uoic.onrender.com";
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 
 type SchoolYear = {
   _id: string;
@@ -254,11 +254,15 @@ export default function AdminClassrooms() {
     setForm({
       name: "",
       grade: "",
-      schoolId: "",
+      schoolId:
+        currentRole === "school_manager" && managerSchoolId
+          ? managerSchoolId
+          : "",
       homeroomTeacherId: "none",
       schoolYearId: "",
     });
   };
+  
 
   const openCreate = () => {
     // khi tạo mới, default năm học = năm đang filter nếu là 1 id hợp lệ
@@ -298,10 +302,11 @@ export default function AdminClassrooms() {
       toast.warning("Tên lớp không được để trống.");
       return;
     }
-    if (!form.schoolId) {
+    if (currentRole !== "school_manager" && !form.schoolId) {
       toast.warning("Vui lòng chọn trường cho lớp.");
       return;
     }
+    
     if (!form.grade) {
       toast.warning("Vui lòng chọn khối lớp.");
       return;

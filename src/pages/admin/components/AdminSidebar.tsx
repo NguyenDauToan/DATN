@@ -26,8 +26,10 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { useState } from "react";
-import { useAuth } from "@/data/AuthContext"; // lấy user, role từ context
+import { useState, useEffect } from "react";
+import { useAuth } from "@/data/AuthContext";
+import api from "@/api/Api";
+import { io, Socket } from "socket.io-client";
 
 type NavItem = { to: string; label: string; icon: LucideIcon };
 type UserRole = "admin" | "school_manager" | "teacher" | "student" | undefined;
@@ -41,14 +43,11 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/admin/AdminMocdata", label: "Đề thi thử", icon: FileText },
   { to: "/admin/questions", label: "Câu hỏi", icon: BookOpen },
   { to: "/admin/feedback", label: "Phản hồi học viên", icon: MessageSquare },
-
-  // 👇 MỤC MỚI: YÊU CẦU GIÁO VIÊN
   {
     to: "/admin/teacher-requests",
     label: "Yêu cầu giáo viên",
     icon: FileText,
   },
-
   { to: "/admin/Examapprove", label: "Duyệt đề thi", icon: CheckSquare },
   { to: "/admin/result-stats", label: "Thống kê kết quả", icon: BarChart3 },
   { to: "/admin/mock-exams/archive", label: "Kho lưu trữ", icon: BarChart3 },
@@ -65,12 +64,116 @@ const USER_MGMT_ITEMS: NavItem[] = [
 ];
 
 export function AdminSidebar() {
+  const { user } = useAuth();
+  const role = user?.role as UserRole;
+
+  const [pendingCounts, setPendingCounts] = useState({
+    feedback: 0,
+    examApprove: 0,
+    teacherRequests: 0,
+  });
+
+  const [socket, setSocket] = useState<Socket | null>(null);
+
   const { open } = useSidebar();
   const location = useLocation();
   const [userMgmtOpen, setUserMgmtOpen] = useState(true);
 
-  const { user } = useAuth();
-  const role = user?.role as UserRole;
+  // ====== LẤY SỐ LƯỢNG PENDING BAN ĐẦU + SOCKET GIỐNG NAVBAR ======
+  useEffect(() => {
+    if (!role || role === "student") return;
+
+    const fetchInitialCounts = async () => {
+      try {
+        const [resFb, resExam, resMock, resTR] = await Promise.all([
+          api.get("/feedback", { params: { status: "pending" } }),
+          api.get("/exams", { params: { status: "pending" } }),
+          api.get("/mock-exams", { params: { status: "pending" } }), // 👈 thêm
+          api.get("/teacher-requests", { params: { status: "pending" } }),
+        ]);
+  
+        const fbCount = Array.isArray(resFb.data) ? resFb.data.length : 0;
+        const examCount = Array.isArray(resExam.data) ? resExam.data.length : 0;
+        const mockCount = Array.isArray(resMock.data) ? resMock.data.length : 0;
+        const trCount = Array.isArray(resTR.data) ? resTR.data.length : 0;
+  
+        setPendingCounts({
+          feedback: fbCount,
+          examApprove: examCount + mockCount,   // 👈 cộng thêm mock-exam
+          teacherRequests: trCount,
+        });
+      } catch (err) {
+        console.error("Lỗi load pending ban đầu:", err);
+      }
+    };
+  
+    fetchInitialCounts();
+
+    const token = localStorage.getItem("token") || "";
+    const baseUrl =
+      import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+
+    const s = io(baseUrl, { query: { token } });
+    setSocket(s);
+
+    // phản hồi học viên mới
+    s.on("admin_new_message", (fb: any) => {
+      if (fb.status === "pending") {
+        setPendingCounts((prev) => ({
+          ...prev,
+          feedback: prev.feedback + 1,
+        }));
+      }
+    });
+
+    // yêu cầu giáo viên mới
+    s.on("teacher_request_new", (req: any) => {
+      if (req.status === "pending") {
+        setPendingCounts((prev) => ({
+          ...prev,
+          teacherRequests: prev.teacherRequests + 1,
+        }));
+      }
+    });
+
+    // yêu cầu giáo viên được duyệt / từ chối
+    s.on("teacher_request_updated", (req: any) => {
+      if (req.status === "approved" || req.status === "rejected") {
+        setPendingCounts((prev) => ({
+          ...prev,
+          teacherRequests: Math.max(prev.teacherRequests - 1, 0),
+        }));
+      }
+    });
+
+    // đề thi pending được tạo / duyệt / từ chối
+    s.on("exam:pending-updated", (data: any) => {
+      setPendingCounts((prev) => {
+        if (data.action === "created") {
+          return { ...prev, examApprove: prev.examApprove + 1 };
+        }
+        if (
+          data.action === "approved" ||
+          data.action === "rejected" ||
+          data.action === "deleted"
+        ) {
+          return {
+            ...prev,
+            examApprove: Math.max(prev.examApprove - 1, 0),
+          };
+        }
+        return prev;
+      });
+    });
+
+    return () => {
+      s.off("admin_new_message");
+      s.off("teacher_request_new");
+      s.off("teacher_request_updated");
+      s.off("exam:pending-updated");
+      s.disconnect();
+    };
+  }, [role]);
 
   const isActive = (path: string) =>
     path === "/admin"
@@ -80,19 +183,9 @@ export function AdminSidebar() {
   // ====== LỌC MENU THEO ROLE ======
 
   const filterMainItemsByRole = (items: NavItem[]): NavItem[] => {
-    // admin: full quyền
     if (role === "admin" || role === undefined) return items;
 
     if (role === "school_manager") {
-      // school manager:
-      // - Trang chủ
-      // - Quản lý lớp
-      // - Đề thi, Đề thi thử
-      // - Câu hỏi
-      // - Phản hồi
-      // - Yêu cầu giáo viên
-      // - Duyệt đề thi
-      // - Thống kê kết quả
       const allowed = [
         "/admin",
         "/admin/school-years",
@@ -109,12 +202,6 @@ export function AdminSidebar() {
     }
 
     if (role === "teacher") {
-      // giáo viên:
-      // - Trang chủ
-      // - Đề thi, Đề thi thử, Câu hỏi
-      // - Phản hồi học viên
-      // - Yêu cầu giáo viên
-      // - Thống kê kết quả
       const allowed = [
         "/admin",
         "/admin/tests",
@@ -127,7 +214,6 @@ export function AdminSidebar() {
       return items.filter((item) => allowed.includes(item.to));
     }
 
-    // các role khác (student) không nên vào admin
     return [];
   };
 
@@ -135,13 +221,11 @@ export function AdminSidebar() {
     if (role === "admin" || role === undefined) return items;
 
     if (role === "school_manager") {
-      // school manager: quản lý học sinh, giáo viên
       const allowed = ["/admin/students", "/admin/AdminTeacher"];
       return items.filter((item) => allowed.includes(item.to));
     }
 
     if (role === "teacher") {
-      // giáo viên: chỉ quản lý học sinh
       const allowed = ["/admin/students"];
       return items.filter((item) => allowed.includes(item.to));
     }
@@ -149,7 +233,7 @@ export function AdminSidebar() {
     return [];
   };
 
-  const dashboardItem = NAV_ITEMS[0]; // luôn là /admin
+  const dashboardItem = NAV_ITEMS[0];
   const otherItemsRaw = NAV_ITEMS.slice(1);
 
   const otherItems = filterMainItemsByRole(otherItemsRaw);
@@ -158,6 +242,14 @@ export function AdminSidebar() {
   const isUserMgmtActive = filteredUserMgmtItems.some((item) =>
     isActive(item.to)
   );
+
+  // badge theo path
+  const getPendingBadge = (path: string) => {
+    if (path === "/admin/feedback") return pendingCounts.feedback;
+    if (path === "/admin/Examapprove") return pendingCounts.examApprove;
+    if (path === "/admin/teacher-requests") return pendingCounts.teacherRequests;
+    return 0;
+  };
 
   return (
     <Sidebar
@@ -195,7 +287,7 @@ export function AdminSidebar() {
           </SidebarGroupLabel>
           <SidebarGroupContent className="mt-1">
             <SidebarMenu className="space-y-1">
-              {/* 1. Trang chủ */}
+              {/* Trang chủ */}
               <SidebarMenuItem className="relative animate-fade-in">
                 {(() => {
                   const Icon = dashboardItem.icon;
@@ -243,7 +335,7 @@ export function AdminSidebar() {
                 })()}
               </SidebarMenuItem>
 
-              {/* 2. Dropdown Quản lý người dùng (nếu có item sau khi lọc) */}
+              {/* Dropdown Quản lý người dùng */}
               {filteredUserMgmtItems.length > 0 && (
                 <SidebarMenuItem className="relative">
                   <SidebarMenuButton
@@ -336,10 +428,11 @@ export function AdminSidebar() {
                 </SidebarMenuItem>
               )}
 
-              {/* 3. Các item còn lại (đã lọc theo role) */}
+              {/* Các item còn lại */}
               {otherItems.map((item, i) => {
                 const Icon = item.icon;
                 const active = isActive(item.to);
+                const badge = getPendingBadge(item.to);
 
                 return (
                   <SidebarMenuItem
@@ -366,7 +459,7 @@ export function AdminSidebar() {
                       >
                         <span
                           className={[
-                            "flex h-7 w-7 items-center justify-center rounded-lg border border-transparent",
+                            "relative flex h-7 w-7 items-center justify-center rounded-lg border border-transparent",
                             "transition-all duration-200 ease-out",
                             "group-hover:scale-[1.05]",
                             active
@@ -375,6 +468,11 @@ export function AdminSidebar() {
                           ].join(" ")}
                         >
                           <Icon className="h-4 w-4" />
+                          {badge > 0 && (
+                            <span className="absolute -top-1 -right-1 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-semibold text-white shadow">
+                              {badge > 9 ? "9+" : badge}
+                            </span>
+                          )}
                         </span>
                         {open && (
                           <span className="truncate text-sm font-medium">

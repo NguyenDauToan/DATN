@@ -117,12 +117,12 @@ const AdminDashboard = () => {
         const headers = { Authorization: `Bearer ${token}` };
 
         const [resDashboard, resSkillStats, resMe] = await Promise.all([
-          axios.get("https://english-backend-uoic.onrender.com/api/admin/dashboard", { headers }),
+          axios.get("http://localhost:5000/api/admin/dashboard", { headers }),
           axios.get(
-            "https://english-backend-uoic.onrender.com/api/results/system/skill-stats",
+            "http://localhost:5000/api/results/system/skill-stats",
             { headers }
           ),
-          axios.get("https://english-backend-uoic.onrender.com/api/profile/me", { headers }),
+          axios.get("http://localhost:5000/api/profile/me", { headers }),
         ]);
 
         const dashData = resDashboard.data || {};

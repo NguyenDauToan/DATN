@@ -84,7 +84,7 @@ export function AddQuestionDialog({ onSuccess }: { onSuccess?: () => void }) {
     try {
       setAudioUploading(true);
       const res = await axios.post(
-        "https://english-backend-uoic.onrender.com/api/questions/upload-audio",
+        "http://localhost:5000/api/questions/upload-audio",
         formData,
         {
           headers: {
@@ -231,7 +231,7 @@ export function AddQuestionDialog({ onSuccess }: { onSuccess?: () => void }) {
 
       try {
         setLoading(true);
-        await axios.post("https://english-backend-uoic.onrender.com/api/questions", payload, {
+        await axios.post("http://localhost:5000/api/questions", payload, {
           headers: { Authorization: `Bearer ${token}` },
         });
 
@@ -284,7 +284,7 @@ export function AddQuestionDialog({ onSuccess }: { onSuccess?: () => void }) {
 
       try {
         setLoading(true);
-        await axios.post("https://english-backend-uoic.onrender.com/api/questions", payload, {
+        await axios.post("http://localhost:5000/api/questions", payload, {
           headers: { Authorization: `Bearer ${token}` },
         });
 
@@ -330,7 +330,7 @@ export function AddQuestionDialog({ onSuccess }: { onSuccess?: () => void }) {
 
       try {
         setLoading(true);
-        await axios.post("https://english-backend-uoic.onrender.com/api/questions", payload, {
+        await axios.post("http://localhost:5000/api/questions", payload, {
           headers: { Authorization: `Bearer ${token}` },
         });
         toast.success("Thêm câu Speaking thành công");
@@ -370,7 +370,7 @@ export function AddQuestionDialog({ onSuccess }: { onSuccess?: () => void }) {
 
         try {
           setLoading(true);
-          await axios.post("https://english-backend-uoic.onrender.com/api/questions", payload, {
+          await axios.post("http://localhost:5000/api/questions", payload, {
             headers: { Authorization: `Bearer ${token}` },
           });
           toast.success("Thêm câu Writing (viết đoạn văn) thành công");
@@ -403,7 +403,7 @@ export function AddQuestionDialog({ onSuccess }: { onSuccess?: () => void }) {
 
       try {
         setLoading(true);
-        await axios.post("https://english-backend-uoic.onrender.com/api/questions", payload, {
+        await axios.post("http://localhost:5000/api/questions", payload, {
           headers: { Authorization: `Bearer ${token}` },
         });
         toast.success("Thêm câu Writing thành công");
@@ -438,7 +438,7 @@ export function AddQuestionDialog({ onSuccess }: { onSuccess?: () => void }) {
 
     try {
       setLoading(true);
-      await axios.post("https://english-backend-uoic.onrender.com/api/questions", payload, {
+      await axios.post("http://localhost:5000/api/questions", payload, {
         headers: { Authorization: `Bearer ${token}` },
       });
       toast.success("Thêm câu hỏi thành công 🎉");
@@ -975,26 +975,35 @@ export function AddQuestionDialog({ onSuccess }: { onSuccess?: () => void }) {
 }
 
 // ===================================================
-
+// ===================================================
 export function ImportExcelDialog({ onSuccess }: { onSuccess?: () => void }) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  // 3 skill cho phép import
   const [skill, setSkill] = useState("");
   const [grade, setGrade] = useState("");
   const [level, setLevel] = useState("");
+  const [questionType, setQuestionType] = useState("");
 
   const handleImport = async (file: File) => {
+    if (!skill) {
+      toast.error("Vui lòng chọn kỹ năng (Reading / Writing / Speaking)");
+      return;
+    }
+
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("skill", skill);
+    formData.append("skill", skill); // override nếu muốn
     formData.append("grade", grade);
     formData.append("level", level);
+    // type không cần gửi, backend đọc từ cột Type trong file
 
     const token = localStorage.getItem("token");
     try {
       setLoading(true);
       const res = await axios.post(
-        "https://english-backend-uoic.onrender.com/api/questions/import",
+        "http://localhost:5000/api/questions/import",
         formData,
         {
           headers: {
@@ -1005,12 +1014,84 @@ export function ImportExcelDialog({ onSuccess }: { onSuccess?: () => void }) {
       );
       toast.success(res.data.message);
       onSuccess?.();
+      setOpen(false);
     } catch (err: any) {
+      console.error(err);
       toast.error(err.response?.data?.message || "Lỗi khi import Excel");
     } finally {
       setLoading(false);
     }
   };
+
+  const handleDownloadTemplate = async () => {
+    if (!skill) {
+      toast.error("Vui lòng chọn kỹ năng trước khi tải file mẫu");
+      return;
+    }
+
+    const token = localStorage.getItem("token");
+    try {
+      const res = await axios.get(
+        "http://localhost:5000/api/questions/import/template",
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          responseType: "blob",
+          params: {
+            skill, // bắt buộc
+            type: questionType || undefined, // nếu chọn loại thì filter đúng loại
+          },
+        }
+      );
+
+      const url = window.URL.createObjectURL(res.data);
+      const a = document.createElement("a");
+
+      const skillSlug = skill || "all";
+      const typeSlug = questionType || "all_types";
+      a.href = url;
+      a.download = `questions_template_${skillSlug}_${typeSlug}.xlsx`;
+
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      console.error(err);
+      toast.error("Lỗi khi tải file mẫu");
+    }
+  };
+
+  const getTypeOptionsForSkill = () => {
+    if (skill === "reading") {
+      return [
+        { value: "multiple_choice", label: "Multiple Choice" },
+        { value: "fill_blank", label: "Fill in the Blank" },
+        { value: "true_false", label: "True / False" },
+      ];
+    }
+    if (skill === "writing") {
+      return [
+        {
+          value: "writing_sentence_order",
+          label: "Writing Sentence Order (sắp xếp câu)",
+        },
+        {
+          value: "writing_add_words",
+          label: "Writing Add Words (thêm từ còn thiếu)",
+        },
+        {
+          value: "writing_paragraph",
+          label: "Writing Paragraph (viết đoạn văn)",
+        },
+      ];
+    }
+    if (skill === "speaking") {
+      return [{ value: "speaking", label: "Speaking (đọc đoạn văn)" }];
+    }
+    return [];
+  };
+
+  const typeOptions = getTypeOptionsForSkill();
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -1024,16 +1105,37 @@ export function ImportExcelDialog({ onSuccess }: { onSuccess?: () => void }) {
           <DialogTitle>Import câu hỏi từ Excel</DialogTitle>
         </DialogHeader>
 
-        <div className="grid grid-cols-3 gap-2 mb-4">
+        <div className="space-y-3 mb-3 text-xs text-muted-foreground">
+          <p>
+            Chỉ hỗ trợ import <b>Reading, Writing, Speaking</b>. Listening cần
+            audio nên tạo thủ công trong form “Thêm câu hỏi”.
+          </p>
+          <p>
+            File Excel cần các cột:{" "}
+            <b>
+              Skill, Type, Grade, Level, Content, Options, Answer, Explanation,
+              Tags
+            </b>
+            . Bạn có thể xem cấu trúc chi tiết bằng cách tải file mẫu theo{" "}
+            <b>kỹ năng</b> và <b>loại câu hỏi</b>.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2 mb-3">
           <div>
             <Label>Kỹ năng</Label>
-            <Select value={skill} onValueChange={setSkill}>
+            <Select
+              value={skill}
+              onValueChange={(val) => {
+                setSkill(val);
+                setQuestionType(""); // đổi skill thì reset loại câu hỏi
+              }}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Chọn kỹ năng" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="reading">Reading</SelectItem>
-                <SelectItem value="listening">Listening</SelectItem>
                 <SelectItem value="writing">Writing</SelectItem>
                 <SelectItem value="speaking">Speaking</SelectItem>
               </SelectContent>
@@ -1041,10 +1143,10 @@ export function ImportExcelDialog({ onSuccess }: { onSuccess?: () => void }) {
           </div>
 
           <div>
-            <Label>Lớp / Kỳ thi</Label>
+            <Label>Lớp / Kỳ thi (tùy chọn)</Label>
             <Select value={grade} onValueChange={setGrade}>
               <SelectTrigger>
-                <SelectValue placeholder="Chọn lớp / kỳ thi" />
+                <SelectValue placeholder="Trong file hoặc chọn" />
               </SelectTrigger>
               <SelectContent>
                 {Array.from({ length: 7 }, (_, i) => 6 + i).map((g) => (
@@ -1061,10 +1163,10 @@ export function ImportExcelDialog({ onSuccess }: { onSuccess?: () => void }) {
           </div>
 
           <div>
-            <Label>Level</Label>
+            <Label>Level (tùy chọn)</Label>
             <Select value={level} onValueChange={setLevel}>
               <SelectTrigger>
-                <SelectValue placeholder="Chọn level" />
+                <SelectValue placeholder="Trong file hoặc chọn" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="easy">Easy</SelectItem>
@@ -1075,6 +1177,46 @@ export function ImportExcelDialog({ onSuccess }: { onSuccess?: () => void }) {
           </div>
         </div>
 
+        {/* Loại câu hỏi – phụ thuộc skill */}
+        {skill && (
+          <div className="mb-4">
+            <Label>Loại câu hỏi</Label>
+            <Select
+              value={questionType}
+              onValueChange={setQuestionType}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Chọn loại câu hỏi (khuyến nghị)" />
+              </SelectTrigger>
+              <SelectContent>
+                {typeOptions.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Nếu không chọn, file mẫu sẽ chứa tất cả loại câu hỏi thuộc kỹ
+              năng {skill}.
+            </p>
+          </div>
+        )}
+
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleDownloadTemplate}
+          >
+            Tải file mẫu
+          </Button>
+          <span className="text-[11px] text-muted-foreground">
+            Bạn có thể sửa nội dung file mẫu rồi import lại.
+          </span>
+        </div>
+
         <Input
           type="file"
           accept=".xlsx,.xls"
@@ -1082,7 +1224,14 @@ export function ImportExcelDialog({ onSuccess }: { onSuccess?: () => void }) {
             e.target.files?.[0] && handleImport(e.target.files[0])
           }
         />
+
+        {loading && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Đang import câu hỏi...
+          </p>
+        )}
       </DialogContent>
     </Dialog>
   );
 }
+

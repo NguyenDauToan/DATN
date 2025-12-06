@@ -95,6 +95,30 @@ type RejectTarget =
   | { kind: "skill"; id: string }
   | { kind: "mock"; id: string }
   | null;
+const getMockExamTypeDisplay = (exam: MockExam) => {
+  // Nếu đề chỉ áp dụng cho 1 lớp thì không nên hiện THPTQG
+  if (exam.scope === "class") {
+    // ưu tiên hiển thị grade nếu có, ví dụ "Lớp 6"
+    if (exam.grade) return exam.grade;
+    return "Theo lớp";
+  }
+
+  // Nếu áp dụng cho cả khối 6–12
+  if (
+    exam.gradeKey &&
+    ["6", "7", "8", "9", "10", "11", "12"].includes(exam.gradeKey)
+  ) {
+    return `Lớp ${exam.gradeKey}`;
+  }
+
+  // THPTQG
+  if (exam.gradeKey === "thptqg" || exam.grade === "thptqg") {
+    return "THPTQG";
+  }
+
+  // các loại cố định khác: IELTS, TOEIC, VSTEP, ...
+  return examTypeLabel[exam.examType] || exam.examType;
+};
 
 export default function ExamApprovalPage() {
   const [skillExams, setSkillExams] = useState<SkillExam[]>([]);
@@ -122,7 +146,7 @@ export default function ExamApprovalPage() {
       console.error(err);
       toast.error(
         err?.response?.data?.message ||
-          "Lỗi tải danh sách đề thi (kỹ năng) chờ duyệt",
+        "Lỗi tải danh sách đề thi (kỹ năng) chờ duyệt",
       );
     } finally {
       setLoadingSkill(false);
@@ -141,7 +165,7 @@ export default function ExamApprovalPage() {
       console.error(err);
       toast.error(
         err?.response?.data?.message ||
-          "Lỗi tải danh sách đề thi thử chờ duyệt",
+        "Lỗi tải danh sách đề thi thử chờ duyệt",
       );
     } finally {
       setLoadingMock(false);
@@ -158,7 +182,7 @@ export default function ExamApprovalPage() {
     const intervalId = setInterval(() => {
       fetchAll();
     }, 30_000);
-  
+
     return () => clearInterval(intervalId);
   }, []);
 
@@ -238,7 +262,7 @@ export default function ExamApprovalPage() {
       console.error(err);
       toast.error(
         err?.response?.data?.message ||
-          "Lỗi khi từ chối đề thi / đề thi thử",
+        "Lỗi khi từ chối đề thi / đề thi thử",
       );
     } finally {
       setApprovingId(null);
@@ -304,8 +328,8 @@ export default function ExamApprovalPage() {
     };
   }, []);
 
-  
-  
+
+
   return (
     <>
       <div className="flex items-center justify-between mb-6">
@@ -501,8 +525,9 @@ export default function ExamApprovalPage() {
 
                       <div className="inline-flex items-center gap-1 text-[11px] text-muted-foreground rounded-full bg-muted/80 px-2 py-0.5">
                         <Globe2 className="w-3 h-3" />
-                        {examTypeLabel[exam.examType]}
+                        {getMockExamTypeDisplay(exam)}
                       </div>
+
 
                       {exam.description && (
                         <p className="text-xs text-muted-foreground mt-1 line-clamp-2">

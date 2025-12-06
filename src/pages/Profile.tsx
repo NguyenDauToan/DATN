@@ -268,8 +268,6 @@ const Profile = () => {
     const { id, value } = e.target;
     setFormData((prev) => ({ ...prev, [id]: value }));
   };
-
-  // ✅ Lưu thay đổi
   const handleSave = async () => {
     try {
       // nếu backend yêu cầu học sinh cập nhật lại lớp khi kết thúc năm cũ
@@ -280,6 +278,13 @@ const Profile = () => {
           );
           return;
         }
+
+        // 🔔 XÁC NHẬN CHẮC CHẮN TRƯỚC KHI CẬP NHẬT LỚP
+        const ok = window.confirm(
+          "Bạn có chắc chắn muốn chọn TRƯỜNG và LỚP này làm lớp hiện tại không?\n" +
+          "Sau khi lưu, bạn sẽ KHÔNG thể tự đổi lớp nữa, nếu cần đổi phải liên hệ nhà trường."
+        );
+        if (!ok) return;
       }
 
       // chặn không cho hạ lớp xuống thấp hơn lớp ban đầu
@@ -299,11 +304,11 @@ const Profile = () => {
         level: formData.level || undefined,
         schoolId: formData.schoolId || undefined,
         classroomId: formData.classroomId || undefined,
-        schoolYearId: formData.schoolYearId || undefined, // mới
+        schoolYearId: formData.schoolYearId || undefined,
         avatar: formData.avatar || undefined,
       };
 
-      const res = await authAPI.updateUser(payload); // { user, token }
+      const res = await authAPI.updateUser(payload);
 
       const updatedUser = res.data.user as AuthUser & { [key: string]: any };
 
@@ -547,23 +552,6 @@ const Profile = () => {
                     Lớp được hệ thống xác định theo lớp bạn chọn bên dưới, không thể nhập tay.
                   </p>
                 </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="level">Cấp độ hiện tại</Label>
-                  <Input
-                    id="level"
-                    value={formData.level || ""}
-                    onChange={handleChange}
-                    placeholder="VD: Beginner, Intermediate, IELTS 6.0..."
-                    className="rounded-xl"
-                  />
-                </div>
-              </div>
-
-
-              {/* Năm học + Trường + Lớp */}
-              {/* Năm học + Trường + Lớp */}
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                 {/* Năm học hiện tại – chỉ hiển thị, không cho sửa */}
                 <div className="space-y-2">
                   <Label>Năm học hiện tại</Label>
@@ -576,6 +564,13 @@ const Profile = () => {
                     Năm học được hệ thống xác định, bạn không thể chỉnh sửa.
                   </p>
                 </div>
+
+              </div>
+
+
+              {/* Năm học + Trường + Lớp */}
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+
 
                 {/* Trường */}
                 <div className="space-y-2">
@@ -669,16 +664,7 @@ const Profile = () => {
 
 
               {/* Avatar URL */}
-              <div className="space-y-2">
-                <Label htmlFor="avatar">Ảnh đại diện (URL)</Label>
-                <Input
-                  id="avatar"
-                  value={formData.avatar || ""}
-                  onChange={handleChange}
-                  placeholder="Dán đường dẫn ảnh nếu có..."
-                  className="rounded-xl"
-                />
-              </div>
+
 
               {/* Actions */}
               <div className="flex flex-col gap-3 pt-2 md:flex-row">
@@ -688,48 +674,7 @@ const Profile = () => {
                 >
                   Lưu thay đổi
                 </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="flex-1 rounded-xl"
-                  onClick={() => {
-                    if (!user) return;
-                    const raw = user as any;
 
-                    const schoolId =
-                      raw.school && typeof raw.school === "object"
-                        ? raw.school._id
-                        : raw.school || "";
-
-                    const classroomId =
-                      raw.classroom && typeof raw.classroom === "object"
-                        ? raw.classroom._id
-                        : raw.classroom || "";
-
-                    const schoolYearId =
-                      raw.currentSchoolYear &&
-                        typeof raw.currentSchoolYear === "object"
-                        ? raw.currentSchoolYear._id
-                        : raw.currentSchoolYear || "";
-
-                    setFormData((prev) => ({
-                      ...prev,
-                      name: raw.name || prev.name,
-                      grade: raw.grade || prev.grade,
-                      level: raw.level || prev.level,
-                      schoolId: schoolId || prev.schoolId,
-                      classroomId: classroomId || prev.classroomId,
-                      schoolYearId: schoolYearId || prev.schoolYearId,
-                      avatar: raw.avatar || prev.avatar,
-                    }));
-
-                    if (schoolId) {
-                      loadClassrooms(schoolId);
-                    }
-                  }}
-                >
-                  Khôi phục từ dữ liệu hiện tại
-                </Button>
               </div>
             </CardContent>
           </Card>
